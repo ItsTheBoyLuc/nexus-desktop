@@ -5,6 +5,8 @@ import { createRoot } from 'react-dom/client'
 import { App } from './App'
 import './theme/global.css'
 import './theme/components.css'
+import './theme/layout.css'
+import './theme/screens.css'
 import { applyTheme } from './theme/tokens'
 
 applyTheme()
