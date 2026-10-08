@@ -48,6 +48,11 @@ export function useAuth(): AuthContextValue {
 
 export function useApiStatus(): ApiStatus {
   const [status, setStatus] = useState<ApiStatus>('unknown')
-  useEffect(() => window.nexus.api.onStatusChange(setStatus), [])
+  useEffect(() => {
+    // Subscribe first, then ask for the current value (IPC keeps order, so the newest always wins).
+    const unsubscribe = window.nexus.api.onStatusChange(setStatus)
+    void window.nexus.api.getStatus().then(setStatus)
+    return unsubscribe
+  }, [])
   return status
 }

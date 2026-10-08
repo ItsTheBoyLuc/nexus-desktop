@@ -113,7 +113,7 @@ function startServices(): void {
     onState: (state) => broadcast(IPC.authStateChanged, state)
   })
 
-  registerIpc({ auth, api, settings, isTrustedUrl: (url) => url.startsWith(trustedUrlPrefix) })
+  registerIpc({ auth, api, settings, getApiStatus: () => status.current(), isTrustedUrl: (url) => url.startsWith(trustedUrlPrefix) })
   void auth.restore()
 }
 

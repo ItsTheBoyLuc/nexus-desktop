@@ -69,7 +69,7 @@
 .server-card { display: flex; align-items: center; gap: var(--space-2); min-height: 80px; }
 .server-card__name { font-weight: 600; overflow-wrap: anywhere; }
 
-.game-card { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; min-height: 168px; }
+.game-card { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; min-height: 168px; text-align: left; }
 .game-card__icon { color: var(--color-primary); }
 .game-card.card--disabled .game-card__icon { color: var(--color-muted); }
 .game-card__title { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }

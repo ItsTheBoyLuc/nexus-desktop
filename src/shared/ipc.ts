@@ -12,6 +12,7 @@ export const IPC = {
   apiGames: 'api:games',
   apiChannels: 'api:channels',
   apiAnnouncement: 'api:announcement',
+  apiGetStatus: 'api:get-status',
   apiStatusChanged: 'api:status-changed',
 
   settingsGet: 'settings:get',

@@ -31,6 +31,7 @@ const bridge: NexusBridge = {
     games: (guildId) => ipcRenderer.invoke(IPC.apiGames, guildId),
     channels: (guildId) => ipcRenderer.invoke(IPC.apiChannels, guildId),
     postAnnouncement: (guildId, input) => ipcRenderer.invoke(IPC.apiAnnouncement, guildId, input),
+    getStatus: () => ipcRenderer.invoke(IPC.apiGetStatus),
     onStatusChange: (callback) => subscribe<ApiStatus>(IPC.apiStatusChanged, callback)
   },
   settings: {

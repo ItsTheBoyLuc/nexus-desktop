@@ -35,6 +35,8 @@ export interface NexusBridge {
     games: (guildId: string) => Promise<IpcResult<Game[]>>
     channels: (guildId: string) => Promise<IpcResult<Channel[]>>
     postAnnouncement: (guildId: string, input: AnnouncementInput) => Promise<IpcResult<AnnouncementResult>>
+    /** Current connection status (components that mount late would otherwise miss earlier events). */
+    getStatus: () => Promise<ApiStatus>
     /** online / waking (server asleep, retrying) / offline. */
     onStatusChange: (callback: (status: ApiStatus) => void) => Unsubscribe
   }

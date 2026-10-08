@@ -2,18 +2,22 @@
 .shell {
   display: grid;
   grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr); /* the row may not outgrow the window: only .shell__content scrolls */
   height: 100%;
+  overflow: hidden;
 }
 
 .shell__main {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
   height: 100%;
 }
 
 .shell__content {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: var(--space-4);
   outline: none;
@@ -172,7 +176,7 @@ a.nav-item:hover { background: var(--color-elevated); color: var(--color-text); 
   transition: background var(--motion-fast) var(--ease);
 }
 .menu__item:hover,
-.menu__item:focus-visible { background: #202020; }
+.menu__item:focus-visible { background: #1c1c1c; }
 .menu__item--danger { color: var(--color-primary); }
 .menu__label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .menu__empty { padding: 10px; color: var(--color-muted); }

@@ -52,12 +52,12 @@ export function Announcement() {
       setPhase('done')
       toast.push({ tone: 'success', title: 'Announcement posted', message: `Sent to #${channelName(result.channelId)}.` })
     } catch (error) {
+      const message = mayHaveSucceeded(error)
+        ? `${describeError(error)} The announcement may already have been posted, so check the channel in Discord before trying again.`
+        : describeError(error)
       setPhase('editing')
-      setPostError(
-        mayHaveSucceeded(error)
-          ? `${describeError(error)} The announcement may already have been posted, so check the channel in Discord before trying again.`
-          : describeError(error)
-      )
+      setPostError(message)
+      toast.push({ tone: 'danger', title: 'Announcement not posted', message })
     }
   }
 
@@ -114,8 +114,6 @@ export function Announcement() {
       ) : (
         <Card>
           <form className="stack" onSubmit={onSubmit} noValidate aria-label="New announcement">
-            {postError ? <Notice tone="danger">{postError}</Notice> : null}
-
             <Select
               label="Channel"
               value={draft.channelId}
@@ -164,6 +162,8 @@ export function Announcement() {
               onChange={(event) => update('imageUrl', event.target.value)}
               onBlur={() => touch('imageUrl')}
             />
+
+            {postError ? <Notice tone="danger">{postError}</Notice> : null}
 
             <div className="form-actions">
               <Button type="submit" icon={<Send size={16} aria-hidden="true" />}>

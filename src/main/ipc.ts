@@ -1,7 +1,7 @@
 import { BrowserWindow, ipcMain } from 'electron'
 import type { IpcMainInvokeEvent } from 'electron'
 import { IPC } from '../shared/ipc'
-import type { ApiErrorInfo, IpcResult } from '../shared/types'
+import type { ApiErrorInfo, ApiStatus, IpcResult } from '../shared/types'
 import { isValidSnowflake, validateAnnouncement } from '../shared/validation'
 import { ApiError } from './apiClient'
 import type { AuthService } from './auth'
@@ -14,6 +14,7 @@ export interface IpcDeps {
   auth: AuthService
   api: NexusApi
   settings: SettingsStore
+  getApiStatus: () => ApiStatus
   /** True only for frames of our own renderer (dev server URL or the packaged index.html). */
   isTrustedUrl: (url: string) => boolean
 }
@@ -89,6 +90,8 @@ export function registerIpc(deps: IpcDeps): void {
       return deps.api.postAnnouncement(id, checked.value)
     })
   )
+
+  handle(IPC.apiGetStatus, () => deps.getApiStatus())
 
   handle(IPC.settingsGet, () => deps.settings.get())
   handle(IPC.settingsSet, (patch) => deps.settings.set(patch))
