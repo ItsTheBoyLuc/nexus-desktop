@@ -15,8 +15,3 @@ export const API_BACKOFF_MS: readonly number[] = [1_000, 3_000]
 
 /** The temporary loopback login server gives up after this long. */
 export const LOGIN_TIMEOUT_MS = 5 * 60 * 1000
-
-export const PRIVACY_URL = 'https://nexus-b67.pages.dev/privacy'
-export const TERMS_URL = 'https://nexus-b67.pages.dev/terms'
-export const BOT_INVITE_URL =
-  'https://discord.com/api/oauth2/authorize?client_id=1504569357169070140&permissions=268520496&scope=bot%20applications.commands'
