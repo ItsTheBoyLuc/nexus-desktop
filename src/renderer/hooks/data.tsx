@@ -1,7 +1,7 @@
-import { createContext, useCallback, useContext, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import type { Channel, Game, Guild } from '../../shared/types'
-import { cached, clearCache } from '../lib/cache'
+import type { Channel, Game, Guild, LeagueGames, Overview, Role, ServerSettings } from '../../shared/types'
+import { cached, clearCache, dropCached, onInvalidate } from '../lib/cache'
 import { unwrap } from '../lib/errors'
 import { useAsync } from './useAsync'
 import type { AsyncState } from './useAsync'
@@ -30,25 +30,68 @@ export function useRefresh(): RefreshContextValue {
   return context
 }
 
-type Loaded<T> = AsyncState<T> & { reload: () => void }
+export type Loaded<T> = AsyncState<T> & { reload: () => void }
+
+/**
+ * Shared plumbing of every data hook: global refresh tick, stale-while-revalidate, and
+ * invalidate(prefix) from the screens that just wrote something.
+ *
+ *  - `share` true: the answer goes through the short TTL cache (several components read it);
+ *    false: every mount asks the server (screens that must show the real, current state).
+ *  - `key` null: nothing to load yet.
+ */
+function useApiData<T>(key: string | null, load: () => Promise<T>, share: boolean): Loaded<T> {
+  const { tick } = useRefresh()
+  const [invalidations, setInvalidations] = useState(0)
+
+  useEffect(
+    () =>
+      onInvalidate((prefix) => {
+        if (key !== null && key.startsWith(prefix)) setInvalidations((count) => count + 1)
+      }),
+    [key]
+  )
+
+  const result = useAsync(
+    () => {
+      if (key === null) return new Promise<T>(() => undefined) // nothing to load: stay in "loading", never fake an answer
+      return share ? cached(key, load) : load()
+    },
+    key ?? 'none',
+    `${tick}.${invalidations}`
+  )
+  const reload = useCallback(() => {
+    if (key !== null) dropCached(key)
+    result.reload()
+  }, [key, result])
+  return { ...result, reload }
+}
 
 export function useGuilds(): Loaded<Guild[]> {
-  const { tick } = useRefresh()
-  return useAsync(() => cached('guilds', () => unwrap(window.nexus.api.guilds())), `guilds:${tick}`)
+  return useApiData('guilds', () => unwrap(window.nexus.api.guilds()), true)
 }
 
 export function useGuildGames(guildId: string | undefined): Loaded<Game[]> {
-  const { tick } = useRefresh()
-  return useAsync(
-    () => (guildId ? cached(`games:${guildId}`, () => unwrap(window.nexus.api.games(guildId))) : Promise.resolve([])),
-    `games:${guildId ?? ''}:${tick}`
-  )
+  return useApiData(guildId ? `games:${guildId}` : null, () => unwrap(window.nexus.api.games(guildId ?? '')), true)
 }
 
 export function useGuildChannels(guildId: string | undefined): Loaded<Channel[]> {
-  const { tick } = useRefresh()
-  return useAsync(
-    () => (guildId ? cached(`channels:${guildId}`, () => unwrap(window.nexus.api.channels(guildId))) : Promise.resolve([])),
-    `channels:${guildId ?? ''}:${tick}`
-  )
+  return useApiData(guildId ? `channels:${guildId}` : null, () => unwrap(window.nexus.api.channels(guildId ?? '')), true)
+}
+
+export function useGuildRoles(guildId: string | undefined): Loaded<Role[]> {
+  return useApiData(guildId ? `roles:${guildId}` : null, () => unwrap(window.nexus.api.roles(guildId ?? '')), true)
+}
+
+/** Screens that show server state read it fresh every time they open (no TTL cache). */
+export function useOverview(guildId: string | undefined): Loaded<Overview> {
+  return useApiData(guildId ? `overview:${guildId}` : null, () => unwrap(window.nexus.api.overview(guildId ?? '')), false)
+}
+
+export function useServerSettings(guildId: string | undefined): Loaded<ServerSettings> {
+  return useApiData(guildId ? `server-settings:${guildId}` : null, () => unwrap(window.nexus.api.serverSettings(guildId ?? '')), false)
+}
+
+export function useLeagueGames(guildId: string | undefined): Loaded<LeagueGames> {
+  return useApiData(guildId ? `league-games:${guildId}` : null, () => unwrap(window.nexus.api.leagueGames(guildId ?? '')), false)
 }

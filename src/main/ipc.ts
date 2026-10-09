@@ -1,13 +1,16 @@
 import { BrowserWindow, ipcMain } from 'electron'
 import type { IpcMainInvokeEvent } from 'electron'
+import { parseGameInput, parsePanelRequest, parseSettingsInput, parseTierCreateInput, parseTierUpdateInput } from '../shared/inputs'
+import type { Parsed } from '../shared/inputs'
 import { IPC } from '../shared/ipc'
 import type { ApiErrorInfo, ApiStatus, IpcResult } from '../shared/types'
-import { isValidSnowflake, validateAnnouncement } from '../shared/validation'
+import { isValidKey, isValidSnowflake, validateAnnouncement } from '../shared/validation'
 import { ApiError } from './apiClient'
 import type { AuthService } from './auth'
 import { openExternalChecked } from './external'
 import { log } from './log'
 import type { NexusApi } from './nexusApi'
+import { deleteGameAndForget, deleteTierAndForget, postPanelAndRemember } from './panelService'
 import type { SettingsStore } from './settings'
 
 export interface IpcDeps {
@@ -89,6 +92,52 @@ export function registerIpc(deps: IpcDeps): void {
       }
       return deps.api.postAnnouncement(id, checked.value)
     })
+  )
+
+  // The renderer is not trusted to have validated keys or form input either: re-check, then call the API.
+  const rejectInput = (message: string): never => {
+    throw new ApiError({ kind: 'validation', code: 'invalid_input', message, mayHaveBeenSent: false })
+  }
+  const valid = <T>(parsed: Parsed<T>): T => (parsed.ok ? parsed.value : rejectInput(parsed.message))
+  const gameKeyOf = (value: unknown): string => (isValidKey(value) ? value : rejectInput('That game key is not valid.'))
+  const tierKeyOf = (value: unknown): string => (isValidKey(value) ? value : rejectInput('That tier key is not valid.'))
+
+  handle(IPC.apiRoles, (guildId) => withGuild(guildId, (id) => deps.api.roles(id)))
+  handle(IPC.apiOverview, (guildId) => withGuild(guildId, (id) => deps.api.overview(id)))
+  handle(IPC.apiServerSettingsGet, (guildId) => withGuild(guildId, (id) => deps.api.serverSettings(id)))
+  handle(IPC.apiServerSettingsPut, (guildId, input) =>
+    withGuild(guildId, (id) => deps.api.saveServerSettings(id, valid(parseSettingsInput(input))))
+  )
+
+  handle(IPC.apiLeagueGames, (guildId) => withGuild(guildId, (id) => deps.api.leagueGames(id)))
+  handle(IPC.apiGameCreate, (guildId, input) => withGuild(guildId, (id) => deps.api.createGame(id, valid(parseGameInput(input)))))
+  handle(IPC.apiGameSetActive, (guildId, gameKey, active) =>
+    withGuild(guildId, (id) =>
+      typeof active === 'boolean' ? deps.api.setGameActive(id, gameKeyOf(gameKey), active) : rejectInput('Choose whether the game is on or off.')
+    )
+  )
+  handle(IPC.apiGameDelete, (guildId, gameKey) =>
+    withGuild(guildId, async (id) => {
+      await deleteGameAndForget(deps.api, deps.settings, id, gameKeyOf(gameKey))
+      return null
+    })
+  )
+  handle(IPC.apiTierCreate, (guildId, gameKey, input) =>
+    withGuild(guildId, (id) => deps.api.createTier(id, gameKeyOf(gameKey), valid(parseTierCreateInput(input))))
+  )
+  handle(IPC.apiTierUpdate, (guildId, gameKey, tierKey, input) =>
+    withGuild(guildId, (id) => deps.api.updateTier(id, gameKeyOf(gameKey), tierKeyOf(tierKey), valid(parseTierUpdateInput(input))))
+  )
+  handle(IPC.apiTierDelete, (guildId, gameKey, tierKey) =>
+    withGuild(guildId, async (id) => {
+      await deleteTierAndForget(deps.api, deps.settings, id, gameKeyOf(gameKey), tierKeyOf(tierKey))
+      return null
+    })
+  )
+  handle(IPC.apiPostPanel, (guildId, gameKey, tierKey, input) =>
+    withGuild(guildId, (id) =>
+      postPanelAndRemember(deps.api, deps.settings, id, gameKeyOf(gameKey), tierKeyOf(tierKey), valid(parsePanelRequest(input)))
+    )
   )
 
   handle(IPC.apiGetStatus, () => deps.getApiStatus())

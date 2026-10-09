@@ -279,6 +279,52 @@ describe('server waking up (normal calls only)', () => {
   })
 })
 
+describe('write methods (PUT, PATCH, DELETE) behave like POST: never replayed after an ambiguous failure', () => {
+  const writes = ['POST', 'PUT', 'PATCH', 'DELETE'] as const
+
+  it.each(writes)('%s is sent with its own method and a JSON body', async (method) => {
+    const { client, calls } = setup(async () => jsonResponse(200, { ok: true }))
+    await client.request({ method, path: '/api/app/v1/guilds/1/x', body: { a: 1 } })
+    expect(calls[0]).toMatchObject({ method, authorization: 'Bearer access-1', body: { a: 1 } })
+  })
+
+  it.each(writes)('%s is NOT retried after a timeout (it may already have been applied)', async (method) => {
+    const { client, calls } = setup((_call, signal) => hangUntilAborted(signal), { timeoutMs: 30 })
+    await expect(client.request({ method, path: '/x', body: {} })).rejects.toMatchObject({ kind: 'timeout' })
+    expect(calls).toHaveLength(1)
+  })
+
+  it.each(writes)('%s is NOT retried after an ambiguous network error', async (method) => {
+    const { client, calls } = setup(async () => {
+      throw connectionError('ECONNRESET')
+    })
+    await expect(client.request({ method, path: '/x', body: {} })).rejects.toMatchObject({ kind: 'network' })
+    expect(calls).toHaveLength(1)
+  })
+
+  it.each(writes)('%s is NOT retried when Render answers 504 (the app may have run it)', async (method) => {
+    const { client, calls } = setup(async () => htmlResponse(504))
+    await expect(client.request({ method, path: '/x', body: {} })).rejects.toBeInstanceOf(ApiError)
+    expect(calls).toHaveLength(1)
+  })
+
+  it('reports to the UI whether a failed write may have reached the server', async () => {
+    const timedOut = setup((_call, signal) => hangUntilAborted(signal), { timeoutMs: 30 })
+    const timeout = await timedOut.client.request({ method: 'PUT', path: '/x', body: {} }).catch((e: unknown) => e)
+    expect((timeout as ApiError).toInfo()).toMatchObject({ kind: 'timeout', mayHaveBeenSent: true })
+
+    const refused = setup(async () => {
+      throw connectionError('ECONNREFUSED')
+    }, { maxTries: 1 })
+    const never = await refused.client.request({ method: 'DELETE', path: '/x' }).catch((e: unknown) => e)
+    expect((never as ApiError).toInfo()).toMatchObject({ kind: 'network', mayHaveBeenSent: false })
+
+    const backend = setup(async () => jsonResponse(403, { error: 'admin_required', message: 'x' }))
+    const refusedByBackend = await backend.client.request({ method: 'PUT', path: '/x', body: {} }).catch((e: unknown) => e)
+    expect((refusedByBackend as ApiError).toInfo()).not.toHaveProperty('mayHaveBeenSent')
+  })
+})
+
 describe('warm-up before restoring a session', () => {
   it('counts a 401 from the backend as "awake" and retries while it boots', async () => {
     let n = 0

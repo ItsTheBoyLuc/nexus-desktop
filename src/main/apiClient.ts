@@ -33,7 +33,9 @@ export class ApiError extends Error {
       code: this.code,
       message: this.message,
       ...(this.status !== undefined ? { status: this.status } : {}),
-      ...(this.retryAfter !== undefined ? { retryAfter: this.retryAfter } : {})
+      ...(this.retryAfter !== undefined ? { retryAfter: this.retryAfter } : {}),
+      // Lets the UI tell "the write may have gone through" from "it never left this computer".
+      ...(this.kind === 'network' || this.kind === 'timeout' ? { mayHaveBeenSent: this.mayHaveBeenSent } : {})
     }
   }
 }
@@ -62,8 +64,10 @@ export interface ApiClientOptions {
   onSessionEnded?: (reason: SessionEndReason) => void
 }
 
+export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
+
 export interface RequestOptions {
-  method?: 'GET' | 'POST'
+  method?: HttpMethod
   path: string
   body?: unknown
   /** Send the Bearer token and handle 401 with one refresh. Default true. */
@@ -114,7 +118,8 @@ export function isTokenPair(json: unknown): json is { access_token: string; refr
  *    token is replayed, so a "maybe delivered" refresh must end the session instead.
  *  - Normal calls tolerate a sleeping server (Render free tier): 20 s per attempt, a calm
  *    "waking up" notice after 5 s, up to 3 tries with backoff. Non-idempotent calls (POST)
- *    are only replayed when the request provably did not reach the app.
+ *    are only replayed when the request provably did not reach the app. The same holds for
+ *    PUT / PATCH / DELETE: no write is ever replayed after a timeout or an ambiguous network error.
  */
 export class ApiClient {
   private readonly baseUrl: string
@@ -348,15 +353,16 @@ export class ApiClient {
   }
 
   /** Render's own 502/503/504 pages (not our JSON errors) mean "the service is not up yet". */
-  private isRetriableResponse(res: RawResponse, method: 'GET' | 'POST'): boolean {
+  private isRetriableResponse(res: RawResponse, method: HttpMethod): boolean {
     if (isBackendError(res.json)) return false
     if (res.status === 502 || res.status === 503) return true
     return res.status === 504 && method === 'GET'
   }
 
-  private isRetriableError(error: ApiError, method: 'GET' | 'POST'): boolean {
+  private isRetriableError(error: ApiError, method: HttpMethod): boolean {
     if (error.kind !== 'timeout' && error.kind !== 'network') return false
-    return method === 'GET' || !error.mayHaveBeenSent // never risk posting an announcement twice
+    // Only reads are replayed after an ambiguous failure: a write (POST, PUT, PATCH, DELETE) may have gone through.
+    return method === 'GET' || !error.mayHaveBeenSent
   }
 
   private async attempt(options: RequestOptions, token: string | null): Promise<RawResponse> {
