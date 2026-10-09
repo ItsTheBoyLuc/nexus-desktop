@@ -6,13 +6,13 @@ import type { AnnouncementDraft, AnnouncementField } from '../../shared/validati
 import { Button, Card, EmptyState, LoadingRegion, Modal, Notice, PageHeader, Select, Skeleton, TextField, useToast } from '../components'
 import { useGuildChannels } from '../hooks/data'
 import { describeError, mayHaveSucceeded, unwrap } from '../lib/errors'
-import { useLeague } from './LeagueRoute'
+import { useServer } from './ServerRoute'
 
 const EMPTY_DRAFT: AnnouncementDraft = { title: '', message: '', channelId: '', imageUrl: '' }
 type Phase = 'editing' | 'confirming' | 'posting' | 'done'
 
 export function Announcement() {
-  const { guild } = useLeague()
+  const { guild } = useServer()
   const channels = useGuildChannels(guild.id)
   const toast = useToast()
 

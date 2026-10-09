@@ -4,11 +4,12 @@ import { useLocation } from 'react-router-dom'
 import { GAME_LABELS, isGameKey } from '../../shared/types'
 import { Button } from '../components'
 import { useGuildGames, useGuilds, useRefresh } from '../hooks/data'
-import { PAGE_LABELS, parseLocation } from '../lib/routes'
+import { PAGE_LABELS, parseLocation, parseServerPage, SERVER_PAGE_LABELS } from '../lib/routes'
 
 export function TopBar() {
   const { pathname } = useLocation()
   const { guildId, game, page } = parseLocation(pathname)
+  const serverPage = parseServerPage(pathname)
   const guilds = useGuilds()
   const games = useGuildGames(guildId ?? undefined)
   const { refresh } = useRefresh()
@@ -26,7 +27,9 @@ export function TopBar() {
   if (pathname.startsWith('/servers')) crumbs.push('Servers')
   else if (guildId) {
     crumbs.push(guildName ?? 'Server')
-    if (game) {
+    if (serverPage) {
+      crumbs.push(SERVER_PAGE_LABELS[serverPage])
+    } else if (game) {
       crumbs.push(gameLabel ?? game)
       if (page) crumbs.push(PAGE_LABELS[page])
     } else {

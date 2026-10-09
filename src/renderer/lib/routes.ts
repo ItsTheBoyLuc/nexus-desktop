@@ -1,21 +1,56 @@
-/** Route paths and parsing in one place, so the sidebar, breadcrumb and router agree. */
-export const PAGES = ['overview', 'calendar', 'reports', 'standings', 'teams', 'announcement'] as const
+/**
+ * Route paths and parsing in one place, so the sidebar, breadcrumb and router agree.
+ *
+ *   /servers                         server list
+ *   /g/:guild                        game picker
+ *   /g/:guild/server/:page           server-level pages: overview, tiers (Games & Tiers), settings, announcement
+ *   /g/:guild/:game/:page            game-level pages: the League modules (Formula 1 only) and Esports team
+ */
+export const SERVER_PAGES = ['overview', 'tiers', 'settings', 'announcement'] as const
+export type ServerPageKey = (typeof SERVER_PAGES)[number]
+
+export const SERVER_PAGE_LABELS: Record<ServerPageKey, string> = {
+  overview: 'Overview',
+  tiers: 'Games & Tiers',
+  settings: 'Settings',
+  announcement: 'Announcement'
+}
+
+/** The League module: only Formula 1 has one. */
+export const LEAGUE_PAGES = ['calendar', 'teams', 'standings', 'reports', 'penalties', 'dirty-drivers', 'attendance', 'signups'] as const
+export type LeaguePageKey = (typeof LEAGUE_PAGES)[number]
+
+/** Every game has an Esports team module. */
+export const PAGES = [...LEAGUE_PAGES, 'esports'] as const
 export type PageKey = (typeof PAGES)[number]
 
 export const PAGE_LABELS: Record<PageKey, string> = {
-  overview: 'Overview',
   calendar: 'Calendar',
-  reports: 'Reports',
-  standings: 'Standings',
   teams: 'Teams',
-  announcement: 'Announcement'
+  standings: 'Standings',
+  reports: 'Reports',
+  penalties: 'Penalties',
+  'dirty-drivers': 'Dirty drivers',
+  attendance: 'Attendance',
+  signups: 'Sign-ups',
+  esports: 'Esports team'
+}
+
+export function isLeaguePage(page: PageKey | null): page is LeaguePageKey {
+  return page !== null && (LEAGUE_PAGES as readonly string[]).includes(page)
+}
+
+/** Where a game opens: Formula 1 has a League module, every other game goes straight to its Esports team. */
+export function gameHomePage(game: string): PageKey {
+  return game === 'f1' ? 'calendar' : 'esports'
 }
 
 export const routes = {
   login: '/login',
   servers: '/servers',
   games: (guildId: string): string => `/g/${guildId}`,
-  league: (guildId: string, game: string, page: PageKey = 'overview'): string => `/g/${guildId}/${game}/${page}`
+  server: (guildId: string, page: ServerPageKey = 'overview'): string => `/g/${guildId}/server/${page}`,
+  game: (guildId: string, game: string, page: PageKey = gameHomePage(game)): string => `/g/${guildId}/${game}/${page}`
 } as const
 
 export interface ParsedLocation {
@@ -24,14 +59,24 @@ export interface ParsedLocation {
   page: PageKey | null
 }
 
-const LOCATION = /^\/g\/(\d{1,20})(?:\/([a-z0-9_]{1,32})(?:\/([a-z]+))?)?\/?$/
+const SERVER_SEGMENT = 'server'
+const LOCATION = /^\/g\/(\d{1,20})(?:\/([a-z0-9_]{1,32})(?:\/([a-z-]+))?)?\/?$/
 
+/** Game and game-level page of a path. Server-level paths have a guild but no game. */
 export function parseLocation(pathname: string): ParsedLocation {
   const match = LOCATION.exec(pathname)
+  const guildId = match?.[1] ?? null
+  if (match?.[2] === SERVER_SEGMENT) return { guildId, game: null, page: null }
   const page = match?.[3]
   return {
-    guildId: match?.[1] ?? null,
+    guildId,
     game: match?.[2] ?? null,
     page: (PAGES as readonly string[]).includes(page ?? '') ? (page as PageKey) : null
   }
+}
+
+/** The server-level page of a path (`/g/:guild/server/:page`), or null. */
+export function parseServerPage(pathname: string): ServerPageKey | null {
+  const page = new RegExp(`^/g/\\d{1,20}/${SERVER_SEGMENT}/([a-z]+)/?$`).exec(pathname)?.[1]
+  return (SERVER_PAGES as readonly string[]).includes(page ?? '') ? (page as ServerPageKey) : null
 }

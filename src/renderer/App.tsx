@@ -5,16 +5,23 @@ import { useGuilds } from './hooks/data'
 import { SettingsProvider, useSettings } from './hooks/settings'
 import { RequireAuth } from './layout/AppShell'
 import { describeError } from './lib/errors'
-import { routes } from './lib/routes'
+import { gameHomePage, LEAGUE_PAGES, routes } from './lib/routes'
 import { Announcement } from './screens/Announcement'
 import { ComingSoon } from './screens/ComingSoon'
 import { GamePicker } from './screens/GamePicker'
-import { LeagueRoute } from './screens/LeagueRoute'
+import { LeagueRoute, useLeague } from './screens/LeagueRoute'
 import { Login } from './screens/Login'
 import { Overview } from './screens/Overview'
+import { ServerRoute } from './screens/ServerRoute'
 import { Servers } from './screens/Servers'
 
-/** Entry point after login: reopen the last server and game if they are still valid, else pick a server. */
+/** A game's landing page: Formula 1 opens its league, every other game its esports team. */
+function GameIndex() {
+  const { guild, game } = useLeague()
+  return <Navigate to={routes.game(guild.id, game.key, gameHomePage(game.key))} replace />
+}
+
+/** Entry point after login: reopen the last server if it is still valid, else pick a server. */
 function Home() {
   const { settings, loaded } = useSettings()
   const guilds = useGuilds()
@@ -29,8 +36,7 @@ function Home() {
   }
 
   const lastGuild = settings.lastGuildId && guilds.data.some((guild) => guild.id === settings.lastGuildId) ? settings.lastGuildId : null
-  if (lastGuild && settings.lastGame) return <Navigate to={routes.league(lastGuild, settings.lastGame)} replace />
-  if (lastGuild) return <Navigate to={routes.games(lastGuild)} replace />
+  if (lastGuild) return <Navigate to={routes.server(lastGuild, 'overview')} replace />
   return <Navigate to={routes.servers} replace />
 }
 
@@ -46,14 +52,16 @@ export function App() {
                 <Route index element={<Home />} />
                 <Route path="servers" element={<Servers />} />
                 <Route path="g/:guildId" element={<GamePicker />} />
-                <Route path="g/:guildId/:game" element={<LeagueRoute />}>
+                <Route path="g/:guildId/server" element={<ServerRoute />}>
                   <Route index element={<Navigate to="overview" replace />} />
                   <Route path="overview" element={<Overview />} />
-                  <Route path="calendar" element={<ComingSoon page="calendar" />} />
-                  <Route path="reports" element={<ComingSoon page="reports" />} />
-                  <Route path="standings" element={<ComingSoon page="standings" />} />
-                  <Route path="teams" element={<ComingSoon page="teams" />} />
                   <Route path="announcement" element={<Announcement />} />
+                </Route>
+                <Route path="g/:guildId/:game" element={<LeagueRoute />}>
+                  <Route index element={<GameIndex />} />
+                  {[...LEAGUE_PAGES, 'esports' as const].map((page) => (
+                    <Route key={page} path={page} element={<ComingSoon page={page} />} />
+                  ))}
                 </Route>
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Route>
