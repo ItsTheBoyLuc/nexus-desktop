@@ -165,3 +165,51 @@ code { font-family: ui-monospace, 'Cascadia Code', Consolas, monospace; font-siz
 @media (max-width: 1180px) {
   .settings-layout { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* ── Games & Tiers ────────────────────────────────────────────────────────── */
+.game-section { display: flex; flex-direction: column; gap: var(--space-2); }
+.game-section__head { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); }
+.game-section__head h2 { margin-right: 4px; }
+.league-game { display: flex; flex-direction: column; gap: var(--space-2); }
+.league-game__head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-2); flex-wrap: wrap; }
+.league-game__title { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.league-game__title h3 { overflow-wrap: anywhere; }
+.league-game__meta { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.league-game__actions { display: flex; flex-wrap: wrap; gap: var(--space-1); }
+.league-game .state { padding: var(--space-3); }
+
+.table-tools { display: grid; grid-template-columns: minmax(0, 1fr) 150px 150px; gap: var(--space-2); align-items: end; }
+.table-wrap { overflow-x: auto; border: 1px solid var(--color-border); border-radius: var(--radius-control); }
+.table { width: 100%; min-width: 640px; border-collapse: collapse; }
+.table th, .table td { padding: 10px 12px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--color-border); overflow-wrap: anywhere; }
+.table tbody tr:last-child > * { border-bottom: 0; }
+.table thead th { background: var(--color-elevated); font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-muted); white-space: nowrap; }
+.table tbody tr:hover { background: #141414; }
+.table__key { font-weight: 700; font-family: var(--font-body); }
+.table__num { font-variant-numeric: tabular-nums; }
+.table__note { display: block; color: var(--color-muted); font-size: 12px; margin-top: 2px; }
+.table__empty { text-align: center; color: var(--color-muted); padding: var(--space-3); }
+.table-count { font-size: 12px; }
+.sort-btn { display: inline-flex; align-items: center; gap: 6px; padding: 2px 4px; margin: -2px -4px; background: transparent; border: 0; border-radius: 6px; color: inherit; font: inherit; text-transform: inherit; letter-spacing: inherit; cursor: pointer; }
+.sort-btn:hover { color: var(--color-text); }
+th[aria-sort='ascending'] .sort-btn, th[aria-sort='descending'] .sort-btn { color: var(--color-text); }
+.row-actions { display: flex; flex-wrap: nowrap; gap: 0; justify-content: flex-end; }
+.btn--sm.btn--icon { width: 32px; }
+.table th, .table td { padding: 10px 8px; }
+.table { min-width: 560px; }
+.table__key { min-width: 104px; }
+.table th:last-child, .table td:last-child { width: 96px; padding-left: 0; padding-right: 4px; }
+.table thead th { font-size: 11px; letter-spacing: 0.04em; }
+.league-game { padding: var(--space-2) var(--space-2); }
+.plain-list { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; color: #d6d6d6; }
+
+.choice-group { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-1); }
+.choice { display: flex; gap: 12px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--color-border); border-radius: var(--radius-control); background: var(--color-elevated); }
+.choice label { cursor: pointer; flex: 1; }
+.choice input { margin-top: 4px; accent-color: var(--color-primary); }
+.choice__note { display: block; color: var(--color-muted); font-size: 12px; }
+.choice:has(input:checked) { border-color: var(--color-primary); }
+
+@media (max-width: 1180px) {
+  .table-tools { grid-template-columns: minmax(0, 1fr) 1fr 1fr; }
+}

@@ -9,6 +9,7 @@ import { gameHomePage, LEAGUE_PAGES, routes } from './lib/routes'
 import { Announcement } from './screens/Announcement'
 import { ComingSoon } from './screens/ComingSoon'
 import { GamePicker } from './screens/GamePicker'
+import { GamesTiers } from './screens/GamesTiers'
 import { LeagueRoute, useLeague } from './screens/LeagueRoute'
 import { Login } from './screens/Login'
 import { Overview } from './screens/Overview'
@@ -56,6 +57,7 @@ export function App() {
                 <Route path="g/:guildId/server" element={<ServerRoute />}>
                   <Route index element={<Navigate to="overview" replace />} />
                   <Route path="overview" element={<Overview />} />
+                  <Route path="tiers" element={<GamesTiers />} />
                   <Route path="settings" element={<ServerSettingsScreen />} />
                   <Route path="announcement" element={<Announcement />} />
                 </Route>
