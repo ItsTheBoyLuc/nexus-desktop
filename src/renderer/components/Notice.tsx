@@ -1,7 +1,7 @@
-import { CircleAlert, CircleCheck, Info } from 'lucide-react'
+import { CircleAlert, CircleCheck, Info, TriangleAlert } from 'lucide-react'
 import type { ReactNode } from 'react'
 
-export type NoticeTone = 'info' | 'danger' | 'success'
+export type NoticeTone = 'info' | 'warning' | 'danger' | 'success'
 
 interface NoticeProps {
   tone?: NoticeTone
@@ -10,9 +10,12 @@ interface NoticeProps {
   action?: ReactNode
 }
 
-const ICONS = { info: Info, danger: CircleAlert, success: CircleCheck } as const
+const ICONS = { info: Info, warning: TriangleAlert, danger: CircleAlert, success: CircleCheck } as const
 
-/** Inline message box. Errors use role="alert" so screen readers announce them immediately. */
+/**
+ * Inline message box. Errors use role="alert" so screen readers announce them immediately.
+ * `warning` is "this will not do what you might expect": red-outlined (the palette has no yellow).
+ */
 export function Notice({ tone = 'info', children, action }: NoticeProps) {
   const Icon = ICONS[tone]
   return (

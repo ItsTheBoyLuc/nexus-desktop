@@ -13,6 +13,7 @@ import { LeagueRoute, useLeague } from './screens/LeagueRoute'
 import { Login } from './screens/Login'
 import { Overview } from './screens/Overview'
 import { ServerRoute } from './screens/ServerRoute'
+import { ServerSettingsScreen } from './screens/ServerSettings'
 import { Servers } from './screens/Servers'
 
 /** A game's landing page: Formula 1 opens its league, every other game its esports team. */
@@ -55,6 +56,7 @@ export function App() {
                 <Route path="g/:guildId/server" element={<ServerRoute />}>
                   <Route index element={<Navigate to="overview" replace />} />
                   <Route path="overview" element={<Overview />} />
+                  <Route path="settings" element={<ServerSettingsScreen />} />
                   <Route path="announcement" element={<Announcement />} />
                 </Route>
                 <Route path="g/:guildId/:game" element={<LeagueRoute />}>

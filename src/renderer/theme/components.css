@@ -279,3 +279,8 @@ textarea.control { resize: vertical; min-height: 120px; line-height: 1.5; }
   from { opacity: 0; transform: translateY(8px) scale(0.98); }
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
+
+/* ── Read-only fields and the warning notice ──────────────────────────────── */
+.control[readonly] { color: var(--color-text); background: var(--color-surface); border-style: dashed; cursor: default; }
+.notice--warning { border-color: rgba(255, 51, 51, 0.45); background: rgba(255, 51, 51, 0.06); }
+.notice--warning .notice__icon { color: var(--color-primary); }
