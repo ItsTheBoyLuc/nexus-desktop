@@ -4,15 +4,18 @@ Windows desktop app for Discord league owners and staff. Electron + React + Type
 with electron-builder. It talks to the Nexus bot's token API (`/api/app/v1`); all Discord access
 goes through that backend, so this app holds **no secrets**.
 
-Phase 2 scope: Discord login, server list, game picker, league home (placeholders) and one working
-feature, posting an announcement to a Discord channel.
+Scope so far (milestone 1): Discord login, server list, game picker with **Enable game**, and the
+server-level screens **Overview**, **Games & Tiers** (tiers with live driver counts, sign-up panels),
+**Settings** (embed colour, footer, season) and **Announcement**. The League (Formula 1 only) and
+Esports team modules are visible in the sidebar and show "Coming in the next phase". Every call follows
+`docs/APP_API.md`, the contract copied from the backend repo.
 
 ## Scripts
 
 | Command | What it does |
 | --- | --- |
 | `npm run dev` | Electron + hot reload (electron-vite dev) |
-| `npm run dev:mock` | Renderer only, in a normal browser at http://localhost:5174 with a **fake** bridge (no Discord login). Query `?scenario=signedout\|denied\|expired\|empty\|error\|slow` shows other states. |
+| `npm run dev:mock` | Renderer only, in a normal browser (the port is printed, usually http://localhost:5174) with a **fake, stateful** bridge (no Discord login). Query `?scenario=signedout\|denied\|expired\|empty\|error\|slow\|nogames\|notadmin` shows other states: `nogames` = no game enabled, `notadmin` = staff but not Administrator (settings save returns 403, admin-level roles return `role_too_privileged`). The header of `src/renderer/mock/installMock.ts` lists the sample data and the "lost answer" hooks. |
 | `npm run typecheck` / `npm run lint` / `npm test` | tsc (strict), ESLint, Vitest |
 | `npm run build` | typecheck + bundle; fails if the mock flag is on or mock code is in `out/` |
 | `npm run dist` | `build` + Windows installer (NSIS) and portable `.exe` in `dist/` |
@@ -29,6 +32,28 @@ src/preload   contextBridge: the small typed API exposed as window.nexus (no tok
 src/renderer  React UI (design system in theme/, components/, layout/, screens/, hooks/)
 src/shared    Types, IPC channel names, CSP and the validation shared by both sides
 ```
+
+### Navigation
+
+```
+/servers                       server list
+/g/:guild                      game picker (Enable game)
+/g/:guild/server/:page         overview, tiers (Games & Tiers), settings, announcement: a server is enough
+/g/:guild/:game/:page          League pages (Formula 1 only) and Esports team: the game must be enabled
+```
+
+### Sign-up panels and the settings file
+
+`userData/settings.json` holds the last server and game and the **message id of every sign-up panel this
+app posted** (the API cannot look panels up). Only the main process writes the ids, and only after the API
+confirmed the outcome (`src/main/panelService.ts`); the renderer cannot add or wipe them. "Refresh panel"
+is offered only when an id is stored; a panel that was deleted in Discord is forgotten automatically.
+
+### Writes
+
+Every POST / PUT / PATCH / DELETE goes out once. After a timeout or an ambiguous network error it is never
+replayed (it may have been applied): the UI says so and offers a refresh. Screens refetch from the server
+after every write instead of patching local state.
 
 ### Security model
 
