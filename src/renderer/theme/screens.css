@@ -226,3 +226,18 @@ th[aria-sort='ascending'] .sort-btn, th[aria-sort='descending'] .sort-btn { colo
 .team-head .swatch { width: 40px; height: 40px; border-radius: 10px; }
 .team-head__text { flex: 1; min-width: 220px; display: flex; flex-direction: column; gap: 2px; }
 .team-head__text h2 { overflow-wrap: anywhere; }
+.field-triple { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 2fr); gap: var(--space-2); align-items: start; }
+.result-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-1); }
+.result-row { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; gap: var(--space-1); align-items: start; }
+.result-row__pos { display: inline-grid; place-items: center; height: 40px; margin-top: 26px; border-radius: var(--radius-control); background: var(--color-elevated); border: 1px solid var(--color-border); font-weight: 700; font-variant-numeric: tabular-nums; }
+.result-row__actions { display: flex; margin-top: 26px; }
+.dialog-actions--start { justify-content: flex-start; }
+.success-heading { display: flex; align-items: center; gap: 10px; color: var(--color-success); }
+.success-heading h2 { color: var(--color-text); }
+.points-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--space-2); border: 0; margin: 0; padding: 0; }
+.table--wide { min-width: 640px; }
+@media (max-width: 1180px) {
+  .points-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .field-triple { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .field-triple > :last-child { grid-column: 1 / -1; }
+}
