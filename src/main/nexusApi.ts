@@ -25,6 +25,8 @@ import type {
 import { isValidHexColor, isValidKey, isValidSnowflake } from '../shared/validation'
 import type { ApiClient } from './apiClient'
 import { cdnImage, clientError, invalid, isCount, isRecord, isText, list } from './apiParse'
+import { createAttendanceApi } from './attendanceApi'
+import type { AttendanceApi } from './attendanceApi'
 import { createF1Api } from './f1Api'
 import type { F1Api } from './f1Api'
 import { createStewardApi } from './f1StewardApi'
@@ -34,7 +36,7 @@ import type { StewardApi } from './f1StewardApi'
  * Everything the UI can ask the backend for. Responses are validated, never trusted blindly.
  * Paths, methods, bodies and response shapes follow docs/APP_API.md and nothing else.
  */
-export interface NexusApi extends F1Api, StewardApi {
+export interface NexusApi extends F1Api, StewardApi, AttendanceApi {
   me: () => Promise<UserInfo>
   guilds: () => Promise<Guild[]>
   games: (guildId: string) => Promise<Game[]>
@@ -191,6 +193,7 @@ export function createNexusApi(client: ApiClient): NexusApi {
   return {
     ...createF1Api(client),
     ...createStewardApi(client),
+    ...createAttendanceApi(client),
 
     async me() {
       const json = await client.request({ path: '/api/app/v1/me' })

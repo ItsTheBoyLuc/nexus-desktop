@@ -3,6 +3,22 @@ import type {
   AddDriverResult,
   AdvanceRaceInput,
   AdvanceRaceResult,
+  AttendanceDivisions,
+  AttendancePost,
+  AttendancePostFilters,
+  AttendancePostInput,
+  AttendancePostPage,
+  AttendancePostResult,
+  DivisionInput,
+  DivisionResult,
+  ParticipantRemoveResult,
+  Signup,
+  SignupCloseResult,
+  SignupCreateResult,
+  SignupInput,
+  SignupParticipantPage,
+  SignupQuestions,
+  SignupStatus,
   BanInput,
   BanResult,
   ClearPointsInput,
@@ -171,6 +187,26 @@ export interface NexusBridge {
     dirtyHistory: (guildId: string, driver: string) => Promise<IpcResult<DirtyHistory>>
     addDirtyReport: (guildId: string, input: DirtyReportInput) => Promise<IpcResult<DirtyReportResult>>
     removeDirtyReport: (guildId: string, driver: string, index: number) => Promise<IpcResult<DirtyRemoveResult>>
+
+    // Attendance and sign-ups (milestone 4). Writes are sent once and never replayed.
+    attendanceDivisions: (guildId: string) => Promise<IpcResult<AttendanceDivisions>>
+    /** A list that is not in the input keeps its value on the server: pass only the lists the user edited. */
+    saveAttendanceDivision: (guildId: string, input: DivisionInput) => Promise<IpcResult<DivisionResult>>
+    attendancePosts: (guildId: string, filters?: AttendancePostFilters) => Promise<IpcResult<AttendancePostPage>>
+    attendancePost: (guildId: string, messageId: string) => Promise<IpcResult<AttendancePost>>
+    /** A lost answer may have posted the message in Discord: never repeat the call with the same data. */
+    createAttendancePost: (guildId: string, input: AttendancePostInput) => Promise<IpcResult<AttendancePostResult>>
+    signupQuestions: (guildId: string) => Promise<IpcResult<SignupQuestions>>
+    /** Administrator only (403 admin_required). */
+    saveSignupQuestions: (guildId: string, questions: string[]) => Promise<IpcResult<SignupQuestions>>
+    signups: (guildId: string, status?: SignupStatus) => Promise<IpcResult<Signup[]>>
+    signup: (guildId: string, signupId: string) => Promise<IpcResult<Signup>>
+    /** Personal data: keep it in memory only. Never write it anywhere. */
+    signupParticipants: (guildId: string, signupId: string, page?: { limit?: number; offset?: number }) => Promise<IpcResult<SignupParticipantPage>>
+    /** A lost answer may have posted the panel in Discord: never repeat the call with the same data. */
+    createSignup: (guildId: string, input: SignupInput) => Promise<IpcResult<SignupCreateResult>>
+    closeSignup: (guildId: string, signupId: string) => Promise<IpcResult<SignupCloseResult>>
+    removeParticipant: (guildId: string, signupId: string, userId: string) => Promise<IpcResult<ParticipantRemoveResult>>
 
     /** Current connection status (components that mount late would otherwise miss earlier events). */
     getStatus: () => Promise<ApiStatus>

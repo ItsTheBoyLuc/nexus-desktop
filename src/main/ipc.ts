@@ -18,6 +18,16 @@ import {
   parseTierUpdateInput
 } from '../shared/inputs'
 import type { Parsed } from '../shared/inputs'
+import {
+  parseDivisionInput,
+  parseMessageId,
+  parseParticipantPage,
+  parsePostFiltersInput,
+  parsePostInput,
+  parseQuestionsInput,
+  parseSignupInput,
+  parseSignupStatus
+} from '../shared/attendanceInputs'
 import { IPC } from '../shared/ipc'
 import {
   parseAdvanceInput,
@@ -241,6 +251,24 @@ export function registerIpc(deps: IpcDeps): void {
   handle(IPC.apiDirtyRemove, (guildId, driver, index) =>
     withGuild(guildId, (id) => deps.api.removeDirtyReport(id, valid(parseDriverName(driver)), valid(parseReportIndex(index))))
   )
+
+  // Attendance and sign-ups (milestone 4). Same rule: re-checked here, every write goes out once, and nothing about the
+  // sign-up participants is logged or stored by the main process.
+  handle(IPC.apiAttendanceDivisions, (guildId) => withGuild(guildId, (id) => deps.api.attendanceDivisions(id)))
+  handle(IPC.apiAttendanceDivisionSave, (guildId, input) => withGuild(guildId, (id) => deps.api.saveAttendanceDivision(id, valid(parseDivisionInput(input)))))
+  handle(IPC.apiAttendancePosts, (guildId, filters) => withGuild(guildId, (id) => deps.api.attendancePosts(id, valid(parsePostFiltersInput(filters)))))
+  handle(IPC.apiAttendancePost, (guildId, messageId) => withGuild(guildId, (id) => deps.api.attendancePost(id, valid(parseMessageId(messageId)))))
+  handle(IPC.apiAttendancePostCreate, (guildId, input) => withGuild(guildId, (id) => deps.api.createAttendancePost(id, valid(parsePostInput(input)))))
+  handle(IPC.apiSignupQuestionsGet, (guildId) => withGuild(guildId, (id) => deps.api.signupQuestions(id)))
+  handle(IPC.apiSignupQuestionsPut, (guildId, questions) => withGuild(guildId, (id) => deps.api.saveSignupQuestions(id, valid(parseQuestionsInput(questions)))))
+  handle(IPC.apiSignups, (guildId, status) => withGuild(guildId, (id) => deps.api.signups(id, valid(parseSignupStatus(status)))))
+  handle(IPC.apiSignup, (guildId, signupId) => withGuild(guildId, (id) => deps.api.signup(id, valid(parseMessageId(signupId)))))
+  handle(IPC.apiSignupParticipants, (guildId, signupId, page) =>
+    withGuild(guildId, (id) => deps.api.signupParticipants(id, valid(parseMessageId(signupId)), valid(parseParticipantPage(page))))
+  )
+  handle(IPC.apiSignupCreate, (guildId, input) => withGuild(guildId, (id) => deps.api.createSignup(id, valid(parseSignupInput(input)))))
+  handle(IPC.apiSignupClose, (guildId, signupId) => withGuild(guildId, (id) => deps.api.closeSignup(id, valid(parseMessageId(signupId)))))
+  handle(IPC.apiSignupParticipantRemove, (guildId, signupId, userId) => withGuild(guildId, (id) => deps.api.removeParticipant(id, valid(parseMessageId(signupId)), userIdOf(userId))))
 
   handle(IPC.apiGetStatus, () => deps.getApiStatus())
 

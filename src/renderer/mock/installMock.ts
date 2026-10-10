@@ -18,6 +18,7 @@
  *   nogames                        no game is enabled in any server
  *   norounds | nobotperms | nofia | lostresults | noledger   F1 league cases, see mock/f1Mock.ts
  *   noreports | nopenaltyconfig | nostaff | lostdecisions | nodirty   reports and penalties, see mock/stewardMock.ts
+ *   nodivisions | nosignups | noconfirmperms | nomanagechannels | ambiguousconfirm | lostcreates   attendance and sign-ups, see mock/attendanceMock.ts
  *   notadmin                       staff only, not Administrator: saving settings returns 403
  *                                  admin_required and linking an admin-level role returns
  *                                  403 role_too_privileged
@@ -56,6 +57,7 @@ import type {
 } from '../../shared/types'
 
 import { clone, failure, notFound, sleep, timeoutFailure } from './common'
+import { createAttendanceMock } from './attendanceMock'
 import { createF1Mock } from './f1Mock'
 import type { F1MockContext } from './f1Mock'
 import { createStewardMock } from './stewardMock'
@@ -295,6 +297,7 @@ export function installMockBridge(): void {
   }
   const f1 = createF1Mock(mockContext)
   const steward = createStewardMock(mockContext)
+  const attendance = createAttendanceMock(mockContext)
   settings = f1.seedSettings(settings)
 
   let authState: AuthState =
@@ -383,7 +386,7 @@ export function installMockBridge(): void {
       teams: f1Counts?.teams ?? extra.teams,
       teamDrivers: f1Counts?.teamDrivers ?? extra.teamDrivers,
       calendarRounds: f1Counts?.rounds ?? extra.rounds,
-      openSignups: extra.openSignups,
+      openSignups: attendance.openSignups(guildId) ?? extra.openSignups,
       reports: stewardCounts?.reports ?? extra.reports,
       pendingReports: stewardCounts?.pending ?? extra.pending
     }
@@ -580,6 +583,7 @@ export function installMockBridge(): void {
 
       ...f1.api,
       ...steward.api,
+      ...attendance.api,
 
       getStatus: async () => currentStatus,
       onStatusChange: (callback): Unsubscribe => {

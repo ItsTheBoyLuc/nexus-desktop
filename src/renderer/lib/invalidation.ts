@@ -64,3 +64,19 @@ export function invalidateDirty(guildId: string): void {
   invalidate(`f1-dirty:${guildId}`)
   invalidate(`f1-penalty:${guildId}:overview`)
 }
+
+/** Attendance divisions or posts changed: every attendance key starts with `f1-attendance:<guild>`. */
+export function invalidateAttendance(guildId: string): void {
+  invalidate(`f1-attendance:${guildId}`)
+}
+
+/** Sign-ups changed (created, closed, a participant removed): the list, the participants and the open sign-ups count of the overview. */
+export function invalidateSignups(guildId: string): void {
+  invalidate(`league-signups:${guildId}`)
+  invalidate(`overview:${guildId}`)
+}
+
+/** The sign-up questions changed. */
+export function invalidateSignupQuestions(guildId: string): void {
+  invalidate(`signup-questions:${guildId}`)
+}

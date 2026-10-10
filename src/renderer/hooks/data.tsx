@@ -1,6 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import type {
+  AttendanceDivisions,
+  AttendancePost,
   Calendar,
   Channel,
   DirtyDriver,
@@ -19,6 +21,8 @@ import type {
   ReportRoundRow,
   Role,
   ServerSettings,
+  Signup,
+  SignupQuestions,
   Standings,
   Team
 } from '../../shared/types'
@@ -194,4 +198,24 @@ export function useDirtyDrivers(guildId: string | undefined): Loaded<DirtyDriver
 
 export function useDirtyHistory(guildId: string | undefined, driver: string | null): Loaded<DirtyHistory> {
   return useApiData(guildId && driver ? `f1-dirty:${guildId}:history:${driver.toLowerCase()}` : null, () => unwrap(window.nexus.api.dirtyHistory(guildId ?? '', driver ?? '')), false)
+}
+
+// ── Attendance and sign-ups (milestone 4): always read fresh ──
+// Keys: `f1-attendance:<guild>:...`, `league-signups:<guild>:...` and `signup-questions:<guild>`, so lib/invalidation.ts can refresh
+// a whole area with one prefix. Participants (personal data) are never put in the shared cache: they only live in component state.
+
+export function useAttendanceDivisions(guildId: string | undefined): Loaded<AttendanceDivisions> {
+  return useApiData(guildId ? `f1-attendance:${guildId}:divisions` : null, () => unwrap(window.nexus.api.attendanceDivisions(guildId ?? '')), false)
+}
+
+export function useAttendancePost(guildId: string | undefined, messageId: string | null): Loaded<AttendancePost> {
+  return useApiData(guildId && messageId ? `f1-attendance:${guildId}:post:${messageId}` : null, () => unwrap(window.nexus.api.attendancePost(guildId ?? '', messageId ?? '')), false)
+}
+
+export function useSignupQuestions(guildId: string | undefined): Loaded<SignupQuestions> {
+  return useApiData(guildId ? `signup-questions:${guildId}` : null, () => unwrap(window.nexus.api.signupQuestions(guildId ?? '')), false)
+}
+
+export function useSignups(guildId: string | undefined): Loaded<Signup[]> {
+  return useApiData(guildId ? `league-signups:${guildId}:list` : null, () => unwrap(window.nexus.api.signups(guildId ?? '')), false)
 }

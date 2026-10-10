@@ -758,6 +758,186 @@ export interface DirtyRemoveResult {
   removed: DirtyReportBody
 }
 
+// ── Attendance and sign-ups (milestone 4) ───────────────────────────────────
+
+/** A driver in a division or on an attendance post, resolved by the server to a current display name. */
+export interface AttendanceDriver {
+  userId: string
+  /** The member's current display name, or null for someone who left the server. */
+  name: string | null
+  inServer: boolean
+}
+
+export interface AttendanceDivision {
+  name: string
+  /** Marked Present automatically when a post is created. */
+  regularDrivers: AttendanceDriver[]
+  /** Cannot use the regular Present button, only Reserve. */
+  reserveDrivers: AttendanceDriver[]
+}
+
+export interface AttendanceDivisions {
+  divisions: AttendanceDivision[]
+  /** The pre-division top-level lists of an old server (read-only here), else null. */
+  legacy: { regularDrivers: AttendanceDriver[]; reserveDrivers: AttendanceDriver[] } | null
+}
+
+/** A list that is left out keeps its current value on the server: only a list the user edited is ever present. */
+export interface DivisionInput {
+  name: string
+  regularDrivers?: string[]
+  reserveDrivers?: string[]
+}
+
+export interface DivisionResult {
+  division: AttendanceDivision
+  created: boolean
+  /** User ids that are in BOTH lists: auto-marked Present at creation, then refused by the Present button. */
+  overlap: string[]
+}
+
+export interface AttendanceCounts {
+  present: number
+  absent: number
+  reserve: number
+}
+
+export interface AttendancePostSummary {
+  messageId: string
+  season: string
+  round: string
+  circuit: string
+  /** null for a post made before divisions existed. */
+  division: string | null
+  description: string
+  counts: AttendanceCounts
+}
+
+export interface AttendancePost extends AttendancePostSummary {
+  attendance: { present: AttendanceDriver[]; absent: AttendanceDriver[]; reserve: AttendanceDriver[] }
+}
+
+export interface AttendancePostFilters {
+  division?: string
+  season?: string
+  /** 1-100, default 25. */
+  limit?: number
+  offset?: number
+}
+
+export interface AttendancePostPage {
+  posts: AttendancePostSummary[]
+  total: number
+  limit: number
+  offset: number
+}
+
+export interface AttendancePostInput {
+  channelId: string
+  division: string
+  season: string
+  round: string
+  circuit: string
+  description?: string
+}
+
+export interface AttendancePostResult {
+  post: AttendancePost
+  channelId: string
+}
+
+export interface SignupQuestion {
+  label: string
+  placeholder: string | null
+  required: boolean
+}
+
+export interface SignupQuestions {
+  /** The custom questions (at most `maxQuestions`); empty = the defaults are used. */
+  questions: string[]
+  usingDefaults: boolean
+  defaultQuestions: SignupQuestion[]
+  /** What the sign-up form really asks. */
+  effectiveQuestions: SignupQuestion[]
+  maxQuestions: number
+  maxQuestionLength: number
+  /** True for an Administrator. null when the server did not say: rely on 403 admin_required. */
+  canEdit: boolean | null
+}
+
+export type SignupStatus = 'open' | 'closed'
+
+export interface Signup {
+  /** The panel message's id. */
+  signupId: string
+  title: string
+  description: string
+  status: SignupStatus
+  /** Free text shown in the panel footer; nothing closes automatically. */
+  closeDate: string | null
+  /** How many per-sign-up custom questions it has (set in Discord only). */
+  customQuestionCount: number
+  panelChannelId: string | null
+  /** A channel NAME, found or created by the bot when the first driver signs up. */
+  confirmationChannel: string
+  createdBy: string
+  createdAt: string
+  participantCount: number
+}
+
+export interface SignupInput {
+  title: string
+  description?: string
+  channelId: string
+  /** Absent: the command's default `signup-confirmations`. */
+  confirmationChannelId?: string
+  closeDate?: string
+}
+
+export interface SignupCreateResult {
+  signup: Signup
+  channelId: string
+}
+
+export interface SignupCloseResult {
+  signup: Signup
+  panelUpdated: boolean
+  /** Why the panel in Discord could not be greyed out, when the sign-up closed anyway. */
+  panelError: string | null
+}
+
+export interface SignupAnswer {
+  question: string
+  answer: string
+}
+
+/** Personal data (names, nationality, age ...): kept in memory only, never persisted or logged, rendered as plain text. */
+export interface SignupParticipant {
+  userId: string
+  username: string
+  displayName: string | null
+  inServer: boolean
+  platform: string
+  platformName: string
+  platformUsername: string
+  answers: SignupAnswer[]
+  timestamp: string
+}
+
+export interface SignupParticipantPage {
+  signup: Signup
+  total: number
+  limit: number
+  offset: number
+  participants: SignupParticipant[]
+}
+
+export interface ParticipantRemoveResult {
+  userId: string
+  username: string
+  participantCount: number
+}
+
 export type ApiErrorKind =
   | 'http'
   | 'network'

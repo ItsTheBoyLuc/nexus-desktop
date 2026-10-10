@@ -265,3 +265,28 @@ th[aria-sort='ascending'] .sort-btn, th[aria-sort='descending'] .sort-btn { colo
 .season-line .badge { margin-bottom: 8px; }
 .report-cards { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
 .notice .lucide { vertical-align: -2px; }
+
+/* ── Attendance and sign-ups (milestone 4) ────────────────────────────────── */
+.member-list { display: flex; flex-direction: column; gap: var(--space-1); }
+.member-list__empty { margin: 0; }
+.member-chips { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.member-chip { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; padding: 4px 4px 4px 10px; background: var(--color-elevated); border: 1px solid var(--color-border); border-radius: 999px; }
+.member-chip__name { overflow-wrap: anywhere; font-size: 13px; }
+.member-chip__remove { display: inline-grid; place-items: center; width: 24px; height: 24px; padding: 0; background: transparent; border: 0; border-radius: 50%; color: var(--color-muted); cursor: pointer; }
+.member-chip__remove:hover:not(:disabled) { color: var(--color-text); background: #1c1c1c; }
+.member-chip__remove:disabled { cursor: not-allowed; opacity: 0.5; }
+.division-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); }
+.name-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.name-list li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 10px; background: var(--color-elevated); border: 1px solid var(--color-border); border-radius: var(--radius-control); overflow-wrap: anywhere; }
+.attendance-columns { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-2); align-items: start; }
+.question-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-1); }
+.question-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-1); align-items: start; }
+.question-row__actions { display: flex; margin-top: 26px; }
+.answers { margin: 0; display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 2px 10px; font-size: 13px; }
+.answers dt { color: var(--color-muted); }
+.answers dd { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.answers-cell { min-width: 240px; max-width: 380px; }
+@media (max-width: 1180px) {
+  .division-grid { grid-template-columns: minmax(0, 1fr); }
+  .attendance-columns { grid-template-columns: minmax(0, 1fr); }
+}

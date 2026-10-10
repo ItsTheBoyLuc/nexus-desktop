@@ -104,7 +104,7 @@ type F1Api = Pick<
 const memberId = (n: number): string => `20000000000${String(n).padStart(7, '0')}`
 const pool = (n: number, displayName: string, username: string): Member => ({ id: memberId(n), username, displayName, avatar: null, bot: false })
 
-const MEMBERS: Member[] = [
+export const MEMBERS: Member[] = [
   pool(1, 'Max Verstappen', 'max_verstappen_nl'),
   pool(2, 'Lando Norris', 'lando_n'),
   pool(3, 'Charles Leclerc', 'charles_l'),
@@ -134,7 +134,7 @@ const MEMBERS: Member[] = [
   pool(35, 'Sim Rookie', 'sim_rookie')
 ]
 /** Drivers in the rosters who have left the fake server: still on the roster, not found by the member search. */
-const LEFT_SERVER = new Set([memberId(3)])
+export const LEFT_SERVER = new Set([memberId(3)])
 
 // ── Per-server F1 state ─────────────────────────────────────────────────────
 

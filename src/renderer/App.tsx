@@ -7,6 +7,7 @@ import { RequireAuth } from './layout/AppShell'
 import { describeError } from './lib/errors'
 import { gameHomePage, LEAGUE_PAGES, routes } from './lib/routes'
 import { Announcement } from './screens/Announcement'
+import { Attendance } from './screens/Attendance'
 import { Calendar } from './screens/Calendar'
 import { ComingSoon } from './screens/ComingSoon'
 import { DirtyDrivers } from './screens/DirtyDrivers'
@@ -24,7 +25,7 @@ import { Standings } from './screens/Standings'
 import { Teams } from './screens/Teams'
 
 /** League pages that have a real screen; the others still show "Coming in the next phase". */
-const IMPLEMENTED_PAGES: ReadonlySet<string> = new Set(['calendar', 'teams', 'standings', 'reports', 'penalties', 'dirty-drivers'])
+const IMPLEMENTED_PAGES: ReadonlySet<string> = new Set(['calendar', 'teams', 'standings', 'reports', 'penalties', 'dirty-drivers', 'attendance'])
 
 /** A game's landing page: Formula 1 opens its league, every other game its esports team. */
 function GameIndex() {
@@ -78,6 +79,7 @@ export function App() {
                   <Route path="reports" element={<Reports />} />
                   <Route path="penalties" element={<Penalties />} />
                   <Route path="dirty-drivers" element={<DirtyDrivers />} />
+                  <Route path="attendance" element={<Attendance />} />
                   {[...LEAGUE_PAGES, 'esports' as const]
                     .filter((page) => !IMPLEMENTED_PAGES.has(page))
                     .map((page) => (
