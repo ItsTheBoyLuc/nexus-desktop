@@ -219,3 +219,10 @@ th[aria-sort='ascending'] .sort-btn, th[aria-sort='descending'] .sort-btn { colo
 .inline-state { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); flex-wrap: wrap; }
 .flag-text { margin-right: 8px; font-weight: 600; letter-spacing: 0.04em; color: var(--color-muted); }
 .table th.table__num, .table td.table__num { font-variant-numeric: tabular-nums; }
+.table-tools--two { grid-template-columns: minmax(0, 1fr) 200px; }
+.link-btn { display: inline-flex; align-items: center; gap: 10px; padding: 2px 6px; margin: -2px -6px; background: transparent; border: 0; border-radius: 6px; color: var(--color-text); font: inherit; font-weight: 700; text-align: left; overflow-wrap: anywhere; }
+.link-btn:hover { text-decoration: underline; text-underline-offset: 3px; }
+.team-head { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.team-head .swatch { width: 40px; height: 40px; border-radius: 10px; }
+.team-head__text { flex: 1; min-width: 220px; display: flex; flex-direction: column; gap: 2px; }
+.team-head__text h2 { overflow-wrap: anywhere; }

@@ -17,6 +17,7 @@ import { Overview } from './screens/Overview'
 import { ServerRoute } from './screens/ServerRoute'
 import { ServerSettingsScreen } from './screens/ServerSettings'
 import { Servers } from './screens/Servers'
+import { Teams } from './screens/Teams'
 
 /** A game's landing page: Formula 1 opens its league, every other game its esports team. */
 function GameIndex() {
@@ -65,8 +66,9 @@ export function App() {
                 <Route path="g/:guildId/:game" element={<LeagueRoute />}>
                   <Route index element={<GameIndex />} />
                   <Route path="calendar" element={<Calendar />} />
+                  <Route path="teams" element={<Teams />} />
                   {[...LEAGUE_PAGES, 'esports' as const]
-                    .filter((page) => page !== 'calendar')
+                    .filter((page) => page !== 'calendar' && page !== 'teams')
                     .map((page) => (
                       <Route key={page} path={page} element={<ComingSoon page={page} />} />
                     ))}
