@@ -1,24 +1,39 @@
 import { useCallback, useState } from 'react'
 
 /**
- * Servers where recording results or saving the points system came back 403 fia_required during this session.
- * The API only says "FIA role or Administrator" when a write is refused (GET /settings `can_edit` is about
- * Administrators only), so the first refusal is remembered and both actions stay disabled until the user
- * chooses "Check again" or restarts the app. The tables stay readable.
+ * Servers where a write came back 403 for a missing role during this session, per role:
+ *  - `fia`:   403 fia_required (recording results, the points system, clearing points, bans, advance race),
+ *  - `admin`: 403 admin_required (the penalty settings).
+ *
+ * The API only says which role is needed when a write is refused, so the first refusal is remembered and the
+ * actions stay disabled until the user chooses "Check again" or restarts the app. The data stays readable.
+ * (A GET /settings `can_edit` tells about Administrators up front; the FIA role has no such flag.)
  */
-const denied = new Set<string>()
+export type DeniedRole = 'fia' | 'admin'
 
-export function useFiaDenied(guildId: string): { denied: boolean; markDenied: () => void; reset: () => void } {
-  const [isDenied, setIsDenied] = useState(() => denied.has(guildId))
+const denied: Record<DeniedRole, Set<string>> = { fia: new Set(), admin: new Set() }
+
+export function useRoleDenied(role: DeniedRole, guildId: string): { denied: boolean; markDenied: () => void; reset: () => void } {
+  const [isDenied, setIsDenied] = useState(() => denied[role].has(guildId))
 
   const markDenied = useCallback(() => {
-    denied.add(guildId)
+    denied[role].add(guildId)
     setIsDenied(true)
-  }, [guildId])
+  }, [role, guildId])
   const reset = useCallback(() => {
-    denied.delete(guildId)
+    denied[role].delete(guildId)
     setIsDenied(false)
-  }, [guildId])
+  }, [role, guildId])
 
   return { denied: isDenied, markDenied, reset }
+}
+
+/** Recording results, saving the points system, clearing points, bans and advance race: FIA role or Administrator. */
+export function useFiaDenied(guildId: string): { denied: boolean; markDenied: () => void; reset: () => void } {
+  return useRoleDenied('fia', guildId)
+}
+
+/** Saving the penalty settings: Administrator. */
+export function useAdminDenied(guildId: string): { denied: boolean; markDenied: () => void; reset: () => void } {
+  return useRoleDenied('admin', guildId)
 }

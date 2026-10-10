@@ -1,6 +1,27 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import type { Calendar, Channel, Game, Guild, LeagueGames, NextRace, Overview, PointsSystem, Role, ServerSettings, Standings, Team } from '../../shared/types'
+import type {
+  Calendar,
+  Channel,
+  DirtyDriver,
+  DirtyHistory,
+  Game,
+  Guild,
+  LeagueGames,
+  NextRace,
+  Overview,
+  PenaltyHistory,
+  PenaltyOverview,
+  PenaltySettings,
+  PointsSystem,
+  Report,
+  ReportRoundDetail,
+  ReportRoundRow,
+  Role,
+  ServerSettings,
+  Standings,
+  Team
+} from '../../shared/types'
 import { cached, clearCache, dropCached, onInvalidate } from '../lib/cache'
 import { errorCode, unwrap } from '../lib/errors'
 import { useAsync } from './useAsync'
@@ -40,7 +61,7 @@ export type Loaded<T> = AsyncState<T> & { reload: () => void }
  *    false: every mount asks the server (screens that must show the real, current state).
  *  - `key` null: nothing to load yet.
  */
-function useApiData<T>(key: string | null, load: () => Promise<T>, share: boolean): Loaded<T> {
+export function useApiData<T>(key: string | null, load: () => Promise<T>, share: boolean): Loaded<T> {
   const { tick } = useRefresh()
   const [invalidations, setInvalidations] = useState(0)
 
@@ -128,4 +149,49 @@ export function useStandings(guildId: string | undefined): Loaded<Standings> {
 
 export function usePointsSystem(guildId: string | undefined): Loaded<PointsSystem> {
   return useApiData(guildId ? `f1-points:${guildId}` : null, () => unwrap(window.nexus.api.pointsSystem(guildId ?? '')), false)
+}
+
+// ── Reports, penalties and dirty drivers (milestone 3): always read fresh ──
+// Key layout: every report key starts with `f1-reports:<guild>`, every penalty key with `f1-penalty:<guild>` and every
+// dirty-driver key with `f1-dirty:<guild>`, so lib/invalidation.ts can refresh a whole area with one prefix.
+
+export function useReport(guildId: string | undefined, reportId: string | null): Loaded<Report> {
+  return useApiData(guildId && reportId ? `f1-reports:${guildId}:one:${reportId}` : null, () => unwrap(window.nexus.api.report(guildId ?? '', reportId ?? '')), false)
+}
+
+export function useReportRounds(guildId: string | undefined): Loaded<ReportRoundRow[]> {
+  return useApiData(guildId ? `f1-reports:${guildId}:rounds` : null, () => unwrap(window.nexus.api.reportRounds(guildId ?? '')), false)
+}
+
+export function useReportRound(guildId: string | undefined, round: { season: string; round: string } | null): Loaded<ReportRoundDetail> {
+  return useApiData(
+    guildId && round ? `f1-reports:${guildId}:round:${round.season}:${round.round}` : null,
+    () => unwrap(window.nexus.api.reportRound(guildId ?? '', round?.season ?? '', round?.round ?? '')),
+    false
+  )
+}
+
+export function usePenaltySettings(guildId: string | undefined): Loaded<PenaltySettings> {
+  return useApiData(guildId ? `f1-penalty:${guildId}:settings` : null, () => unwrap(window.nexus.api.penaltySettings(guildId ?? '')), false)
+}
+
+/** `season` undefined = the current season. A 404 penalty_not_configured arrives as an error (the screen explains it). */
+export function usePenaltyOverview(guildId: string | undefined, season: number | undefined): Loaded<PenaltyOverview> {
+  return useApiData(guildId ? `f1-penalty:${guildId}:overview:${season ?? 'current'}` : null, () => unwrap(window.nexus.api.penaltyOverview(guildId ?? '', season)), false)
+}
+
+export function usePenaltyHistory(guildId: string | undefined, driver: string | null, season: number | undefined): Loaded<PenaltyHistory> {
+  return useApiData(
+    guildId && driver ? `f1-penalty:${guildId}:history:${season ?? 'current'}:${driver.toLowerCase()}` : null,
+    () => unwrap(window.nexus.api.penaltyHistory(guildId ?? '', driver ?? '', season)),
+    false
+  )
+}
+
+export function useDirtyDrivers(guildId: string | undefined): Loaded<DirtyDriver[]> {
+  return useApiData(guildId ? `f1-dirty:${guildId}:list` : null, () => unwrap(window.nexus.api.dirtyDrivers(guildId ?? '')), false)
+}
+
+export function useDirtyHistory(guildId: string | undefined, driver: string | null): Loaded<DirtyHistory> {
+  return useApiData(guildId && driver ? `f1-dirty:${guildId}:history:${driver.toLowerCase()}` : null, () => unwrap(window.nexus.api.dirtyHistory(guildId ?? '', driver ?? '')), false)
 }

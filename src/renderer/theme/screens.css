@@ -241,3 +241,22 @@ th[aria-sort='ascending'] .sort-btn, th[aria-sort='descending'] .sort-btn { colo
   .field-triple { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .field-triple > :last-child { grid-column: 1 / -1; }
 }
+
+/* ── Reports, penalties and dirty drivers (milestone 3) ───────────────────── */
+.filter-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.3fr) minmax(0, 1.6fr); gap: var(--space-2); align-items: start; }
+.facts--grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2) var(--space-3); }
+.facts__wide { grid-column: 1 / -1; }
+.facts dd { font-size: 15px; font-weight: 600; }
+.plain-text { white-space: pre-wrap; overflow-wrap: anywhere; font-weight: 400; }
+.cell-clamp { max-width: 220px; overflow-wrap: anywhere; }
+.chip-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.evidence { display: flex; flex-direction: column; gap: 8px; }
+.evidence__url { margin: 0; padding: 8px 10px; background: var(--color-elevated); border: 1px solid var(--color-border); border-radius: var(--radius-control); overflow-wrap: anywhere; word-break: break-all; font-size: 13px; }
+.evidence__actions { display: flex; flex-wrap: wrap; gap: var(--space-1); }
+.evidence-image { margin: 0; }
+.evidence-image img { display: block; max-width: 100%; max-height: 360px; border: 1px solid var(--color-border); border-radius: var(--radius-control); background: var(--color-elevated); }
+.evidence-image--missing { display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; background: var(--color-elevated); border: 1px solid var(--color-border); border-radius: var(--radius-control); color: var(--color-muted); }
+.ban-notice { margin: 8px 0 0; padding: 10px 12px; background: var(--color-elevated); border: 1px solid var(--color-border); border-left: 3px solid var(--color-primary); border-radius: var(--radius-control); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--color-text); }
+@media (max-width: 1180px) {
+  .filter-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+}

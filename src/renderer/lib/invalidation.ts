@@ -43,3 +43,24 @@ export function invalidatePointsSystem(guildId: string): void {
   invalidate(`f1-points:${guildId}`)
   invalidate(`overview:${guildId}`)
 }
+
+/**
+ * Reports changed (a decision was made): the list, the report itself, the round overview and the overview counts.
+ * Every report key starts with `f1-reports:<guild>`, so one prefix covers all of them.
+ */
+export function invalidateReports(guildId: string): void {
+  invalidate(`f1-reports:${guildId}`)
+  invalidate(`overview:${guildId}`)
+}
+
+/** Penalty points, bans or the penalty settings changed (also: a decision that awarded points, the overview checklist). */
+export function invalidatePenalties(guildId: string): void {
+  invalidate(`f1-penalty:${guildId}`)
+  invalidate(`overview:${guildId}`)
+}
+
+/** Dirty-driver reports changed: the list, the histories and the "Reported (N)" flag of the penalty overview. */
+export function invalidateDirty(guildId: string): void {
+  invalidate(`f1-dirty:${guildId}`)
+  invalidate(`f1-penalty:${guildId}:overview`)
+}

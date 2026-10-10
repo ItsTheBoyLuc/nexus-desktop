@@ -12,3 +12,17 @@ export function formatCountdown(hours: number): string {
 export function plural(count: number, one: string, many = `${one}s`): string {
   return `${count} ${count === 1 ? one : many}`
 }
+
+/** A timestamp from the server as local date and time; the raw text when it cannot be read (never throws). */
+export function formatWhen(timestamp: string): string {
+  const time = Date.parse(timestamp)
+  if (Number.isNaN(time)) return timestamp
+  return new Date(time).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+}
+
+/** Just the date part of a timestamp ("12 Oct 2026"); the raw text when it cannot be read. */
+export function formatDay(timestamp: string): string {
+  const time = Date.parse(timestamp)
+  if (Number.isNaN(time)) return timestamp
+  return new Date(time).toLocaleDateString(undefined, { dateStyle: 'medium' })
+}
