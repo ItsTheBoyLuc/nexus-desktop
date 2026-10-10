@@ -7,12 +7,12 @@ bot's Flask app. This file is the contract: **every registered route is listed h
 **Status:** Auth + base, **M1 — Foundations, Games & tiers, Server settings, Overview**,
 **M2 — F1 league core (calendar, teams and drivers, standings, points system)** and
 **M3 — Reports, penalty points, bans, dirty drivers** (plus a results ledger and the points-system defaults) and
-**M4 — Attendance (divisions and posts) and sign-ups (questions, panels, participants)**.
-M5 (esports) is not built yet.
+**M4 — Attendance (divisions and posts) and sign-ups (questions, panels, participants)** and
+**M5 — Esports teams for the five `/racing` games (teams, roster, events, results archive, attendance, announcements)**.
 
 Contents: [Conventions](#conventions) · [Auth](#auth) · [Base](#base-endpoints) · [Pickers](#pickers) ·
 [Overview](#overview) · [Server settings](#server-settings) · [Games & tiers](#games--tiers) · [F1 league](#f1-league) ·
-[Reports and penalties](#reports-and-penalties-m3) · [Attendance and sign-ups](#attendance-and-sign-ups-m4) · [Sync notes](#sync-with-discord)
+[Reports and penalties](#reports-and-penalties-m3) · [Attendance and sign-ups](#attendance-and-sign-ups-m4) · [Esports teams](#esports-teams-m5) · [Sync notes](#sync-with-discord)
 
 ---
 
@@ -47,9 +47,11 @@ Branch on `error`, show `message`. Unexpected failures are `500 internal_error` 
 | 401 | `unauthorized` | Missing, malformed, unknown or expired access token (response has `WWW-Authenticate: Bearer`). Refresh and retry once. |
 | 403 | `forbidden` | Caller is not staff in that server (or cannot see the target channel) |
 | 403 | `admin_required` | Endpoint needs Administrator (not just staff) |
+| 403 | `manage_server_required` / `manager_required` | M5 permission rules (see the Esports section) |
 | 403 | `bot_cannot_send` | The bot lacks permission to post in that channel |
 | 409 | `already_closed` / `confirmation_channel_ambiguous` / … | State conflicts (codes listed per endpoint) |
 | 404 | `guild_not_found` | The bot is not in that server |
+| 404 | `unknown_game` | `{game}` is not one of `lmu`, `iracing`, `gt7`, `acc`, `f1` |
 | 404 | `not_found` | Unknown endpoint |
 | 405 | `method_not_allowed` | Wrong HTTP method |
 | 429 | `rate_limited` | See [Rate limits](#rate-limits); honour `Retry-After` (seconds) |
@@ -82,7 +84,8 @@ store as `{ts, user_id, username, guild_id, action, detail}`. Actions: `announce
 `league.panel.post|refresh`, `f1.calendar.rename|post|edit_post`, `f1.calendar.round.create|update|delete`,
 `f1.team.create`, `f1.driver.add|remove`, `f1.results.record`, `f1.points_system.update`, `f1.report.decide`,
 `f1.penalty_settings.update`, `f1.penalty.add|clear|ban_give|ban_remove|advance_race`, `f1.dirty_driver.report|remove_report`,
-`attendance.division.update`, `attendance.post.create`, `signup.questions.update`, `signup.create`, `signup.close`, `signup.participant.remove`.
+`attendance.division.update`, `attendance.post.create`, `signup.questions.update`, `signup.create`, `signup.close`, `signup.participant.remove`,
+`esports.team.create`, `esports.roster.add|remove`, `esports.event.add`, `esports.result.log`, `esports.attendance.create`, `esports.announcement.post`.
 
 ---
 
@@ -1209,6 +1212,202 @@ Errors: `400 invalid_signup_id | invalid_user_id`, `404 signup_not_found | parti
 * **`/league signup`, `signup-close` and `signup-remove` change the in-memory sign-ups without holding `_signups_lock`** (only the save is locked) — a concurrent save can in theory iterate a dictionary that is being changed.
   The participant write (`_finalize_signup`), the API and the create modal now hold the lock for the whole change.
 * **`_toggle`, the attendance post and the setup / migration code used an unlocked load → modify → save** (two simultaneous clicks, or a click and an app write, could drop one). They now use the locked update helpers; behaviour is otherwise identical (proven by `scripts/test_bot_extractions_m4.py`).
+
+---
+
+## Esports teams (M5)
+
+The `/racing` commands for five games: **`lmu`** (Le Mans Ultimate), **`iracing`**, **`gt7`**, **`acc`** and **`f1`** (Formula 1 Esports). The `{game}` path segment picks the game;
+any other value is `404 unknown_game`. Each game has its **own four files** (teams, events, results, attendance), so a request for one game can never read or write another game's data:
+
+| Game | Files (`data/…`) |
+|---|---|
+| `lmu` | `lmu_teams.json`, `lmu_events.json`, `lmu_results.json`, `lmu_attendance.json` |
+| `iracing`, `gt7`, `acc` | `{game}_teams.json`, `{game}_events.json`, `{game}_results.json`, `{game}_attendance.json` |
+| `f1` | `racing_f1_teams.json`, `racing_f1_events.json`, `racing_f1_results.json`, `racing_f1_attendance.json` — **never** the league `/f1` files |
+
+All writes use the same locked atomic helper (`_gp_update`, a lock per file) that the commands and the attendance buttons use.
+
+**Permissions** (checked on the server against the caller's real Discord permissions; the caller must also be staff of the server to use the app at all):
+
+| Needs | Endpoints | Rule (same as the command) | Error |
+|---|---|---|---|
+| staff | every `GET` | no special permission | `403 forbidden` |
+| Manage Server **or** Administrator | create team, add / remove roster, add event, log result | `has_permissions(manage_guild=True)` | `403 manage_server_required` |
+| Manage Server, Administrator, **or Manager / Coach** of a team **of this game** | create attendance post, post announcement | `_racing_manager_check(game)` / `_lmu_manager_check` | `403 manager_required` |
+
+A Manager or Coach of an iRacing team is not allowed to post for GT7. The roster role is compared case-insensitively ("manager", "Coach", …).
+
+### Differences between `lmu` and the other games
+
+The API hides them: it always uses `focus` for a team's class / category and `class` for an event's, and maps them to what each game stores.
+
+| | `lmu` | `iracing`, `gt7`, `acc`, `f1` |
+|---|---|---|
+| Team field in the file | `class_focus` | `focus` |
+| Event field in the file | `class` | `series` |
+| Attendance view | `LMUAttendanceView`, buttons `lmu_att:available` / `lmu_att:unavailable` | `RacingAttendanceView(game)`, buttons `racing_att:{game}:available` / `racing_att:{game}:unavailable` |
+| Attendance embed footer | `Nexus Racing · LMU` | `Nexus Racing · {game label}` |
+
+Everything else is identical: the team / roster / event / result records, the duplicate and rollback logic, the permissions and the embeds.
+The class / category / series is **free text** for every game (up to 30 characters), never a fixed list.
+
+### Teams
+
+Team record: `{ color, focus | class_focus, role_id, roster: [ { user_id, username, display_name, role, joined_at } ], created_by, created_at }`, under `{ guild: { "<team name>": … } }`.
+Team names are matched **case-insensitively** (like the commands); the first spelling is kept.
+
+### GET /guilds/{guild_id}/racing/{game}/teams
+
+```json
+{ "game": "lmu", "teams": [ { "name": "Apex Racing", "color": "#1E41FF", "focus": "GT3", "role_id": "910…", "role_name": "Apex Racing",
+                              "role_exists": true, "member_count": 3, "created_by": "1001", "created_at": "2026-01-01T00:00:00Z" } ] }
+```
+
+Sorted by name. `role_exists` is false when the Discord role was deleted. No body, no special permission.
+
+### GET /guilds/{guild_id}/racing/{game}/team
+
+`/racing {game} roster-info`. Query: `name` (required, 1–50). The team as above plus its roster:
+
+```json
+{ "game": "lmu", "team": { …as above…, "roster": [ { "user_id": "2001", "username": "alice", "display_name": "Ally", "current_name": "Ally",
+                                                    "in_server": true, "role": "Race Driver", "joined_at": "2026-01-02T00:00:00Z" } ] } }
+```
+
+`display_name` is what was stored when the member joined; `current_name` is their name now (`null`, `in_server: false` when they left). Errors: `400 invalid_name`, `404 team_not_found`.
+
+### POST /guilds/{guild_id}/racing/{game}/teams
+
+`/racing {game} team-create`: creates the team **and a Discord role in the team colour**. Needs **Manage Server or Administrator**.
+Request: `{ "name": "Apex Racing", "color": "#1E41FF", "focus": "Hypercar" }` — `name` 1–50 (single line), `color` exactly `#RRGGBB`, `focus` optional free text ≤ 30.
+The bot's **Manage Roles** permission is checked first. A duplicate name (any case) is refused *before* a role is made; if a duplicate shows up between that check and the save, or the save fails,
+the new role is deleted again (rollback). Response `201`: `{ "game", "team": { …with roster… } }`.
+Errors: `400 invalid_name | invalid_color | invalid_focus`, `403 manage_server_required | bot_missing_manage_roles`, `409 team_exists`, `502 discord_error`, `504 bot_timeout`.
+
+### POST /guilds/{guild_id}/racing/{game}/roster
+
+`/racing {game} roster-add`. Needs **Manage Server or Administrator**. The app sends the member picked from `GET /members` (the commands' username search is replaced by the ID).
+Request: `{ "team": "Apex Racing", "user_id": "2002", "role": "Reserve" }`. `role` must be one of **`Race Driver`, `Reserve`, `Coach`, `Manager`** (any capitalisation; stored as written here).
+(The command accepts any text up to 30 characters; the API is limited to the four roles the command suggests. A Manager or Coach may create attendance posts and announcements — see the permission table.)
+The member gets the team's Discord role. Checked first: the team exists, its role still exists, the bot has Manage Roles and the role is below the bot's highest role, the user is a member of the server,
+and is not already on the roster. If the save then fails because of a race, the role is taken away again — but only if the API had just added it.
+Response `201`: `{ "game", "team", "entry": { …roster row… }, "role_assigned": true }`.
+Errors: `400 invalid_team | invalid_user_id | invalid_role`, `403 manage_server_required | bot_missing_manage_roles | role_not_assignable | bot_cannot_assign_role`,
+`404 team_not_found | team_role_not_found | member_not_found`, `409 already_on_roster`, `502 discord_error`, `504 bot_timeout`.
+
+### DELETE /guilds/{guild_id}/racing/{game}/roster
+
+`/racing {game} roster-remove`. Needs **Manage Server or Administrator**. Query: `team` and `user_id`. Works for a member who already left the server (the entry is found by ID).
+The entry is removed first, then the team role is taken away from the member (only if they are still in the server, like the command).
+Response `200`: `{ "ok": true, "game", "team", "removed": { …roster row… }, "role_removed": true, "role_error": null }`. `role_error` is `bot_cannot_remove_role | bot_unavailable | bot_timeout | discord_error`
+when the entry was removed but the role could not be taken away (the command ignores this silently).
+Errors: `400 invalid_team | invalid_user_id`, `404 team_not_found | not_on_roster`.
+
+### GET /guilds/{guild_id}/racing/{game}/drivers/{user_id}
+
+`/racing {game} driver-profile`: every team and role of one member in this game.
+
+```json
+{ "game": "lmu", "user_id": "2001", "display_name": "Ally", "in_server": true,
+  "memberships": [ { "team": "Apex Racing", "role": "Race Driver", "joined_at": "2026-01-02T00:00:00Z", "joined": "2026-01-02" } ] }
+```
+
+`memberships` is empty for someone on no team. Errors: `400 invalid_user_id`, `404 driver_not_found` (not in the server and on no team).
+
+### Events
+
+Event record: `{ id, name, date, time, class | series, notes, created_by, created_at }`, under `{ guild: [ … ] }`.
+
+### GET /guilds/{guild_id}/racing/{game}/events
+
+`/racing {game} event-calendar`: **upcoming** events, soonest first. Past events are left out, and events whose date cannot be parsed are listed **last** (stored order) — exactly like the command.
+Dates the command understands: `YYYY-MM-DD`, `DD-MM-YYYY`, `MM/DD/YYYY`, `DD/MM/YYYY`, `YYYY/MM/DD` (tried in that order, so `03/04/2026` is March 4th). The embed cuts the list at 20; the API does not.
+Query: `limit` (1–100, default 25), `offset`.
+
+```json
+{ "game": "lmu", "total": 4, "limit": 25, "offset": 0,
+  "events": [ { "id": "3fa9…", "name": "Daytona_24", "date": "2026-09-14", "time": "20:00 UTC", "class": "GT3", "notes": "bring_snacks",
+                "date_iso": "2026-09-14", "created_by": "1001", "created_at": "2026-01-01T00:00:00Z" } ] }
+```
+
+`date_iso` is the parsed date, or `null` when the text could not be parsed (it is not stored). Errors: `400 invalid_limit | invalid_offset`.
+
+### POST /guilds/{guild_id}/racing/{game}/events
+
+`/racing {game} event-add`. Needs **Manage Server or Administrator**.
+Request: `{ "name": "Daytona 24", "date": "2026-09-14", "time": "20:00 UTC", "class": "GT3", "notes": "…" }` — `name` 1–100, `date` 1–20, `time` 1–20 (both free text, like the command),
+`class` optional free text ≤ 30 (stored as `class` for lmu and `series` for the other games), `notes` optional ≤ 300. Response `201`: `{ "game", "event": { … } }`.
+Errors: `400 invalid_name | invalid_date | invalid_time | invalid_class | invalid_notes`, `403 manage_server_required`.
+
+### Results archive
+
+An **append-only archive** (`results-log` and `team-stats` are not a calculated standing). There is **no endpoint to edit or delete an entry** because no command does, and
+**logging the same result twice creates two entries**. Entry: `{ id, event_name, team_name, result, drivers, notes, logged_by, logged_at }`.
+
+### GET /guilds/{guild_id}/racing/{game}/results
+
+`/racing {game} team-stats`. Query: `team` (optional — one team, matched case-insensitively; without it every team), `limit` (1–100, default 25), `offset`. **Oldest first**, like the command.
+Response: `{ "game", "team": "Apex Racing" | null, "total", "limit", "offset", "results": [ { "id", "event_name", "team_name", "result", "drivers", "notes", "logged_by", "logged_at" } ] }`.
+Errors: `400 invalid_team | invalid_limit | invalid_offset`, `404 team_not_found`.
+
+### POST /guilds/{guild_id}/racing/{game}/results
+
+`/racing {game} results-log`. Needs **Manage Server or Administrator**.
+Request: `{ "team": "Apex Racing", "event_name": "Daytona 24", "result": "P3 in GT3", "drivers": "alice, bob", "notes": "…" }` — `event_name` 1–100, `result` 1–100, `drivers` 1–200 (free text, as typed in the command),
+`notes` optional ≤ 300. Response `201`: `{ "game", "result": { … } }`. Errors: `400 invalid_team | invalid_event_name | invalid_result | invalid_drivers | invalid_notes`, `403 manage_server_required`, `404 team_not_found`.
+
+### Attendance
+
+Record: `{ name, date, description, created_by, created_at, _color, attendance: { available: [ { id, name } ], unavailable: [ … ] } }` under `{ guild: { "<message_id>": … } }`.
+Drivers toggle **their own** status with the buttons in Discord; there is no endpoint that sets or removes someone else's status, and none that edits or deletes a post.
+A post created through the API keeps working after a bot restart exactly like one made by the command (the buttons are the bot's global persistent view; for `lmu` its own `LMUAttendanceView`).
+
+### GET /guilds/{guild_id}/racing/{game}/attendance
+
+Posts, newest first. Query: `limit` (1–100, default 25), `offset`.
+`{ "game", "total", "limit", "offset", "posts": [ { "message_id", "name", "date", "description", "created_by", "created_at", "counts": { "available": 1, "unavailable": 0 } } ] }`.
+
+### GET /guilds/{guild_id}/racing/{game}/attendance/{message_id}
+
+One post plus `"attendance": { "available": [ { "user_id", "name", "in_server" } ], "unavailable": [ … ] }`, where `name` is the member's **current** display name (the stored name when they left).
+Errors: `400 invalid_message_id`, `404 post_not_found`.
+
+### POST /guilds/{guild_id}/racing/{game}/attendance
+
+`/racing {game} attendance`: posts the same embed with the same persistent **Available / Not Available** buttons. Needs **Manage Server, Administrator, or a Manager / Coach of one of this game's teams**.
+Request: `{ "channel_id": "777…", "name": "Tuesday Practice", "date": "2026-09-14", "description": "…" }` — `channel_id` a text channel from `GET /channels`, `name` 1–100, `date` 1–20 (free text), `description` optional ≤ 300.
+Posted as typed (Discord formatting characters render; member names in the lists are escaped by the shared embed builder). Response `201`: `{ "game", "post": { …as in the single read… }, "channel_id" }`; `post.message_id` is the handle (the channel is not stored).
+If the record cannot be saved after the message was sent, the message is deleted again.
+Errors: `400 invalid_name | invalid_date | invalid_channel | invalid_description`, `403 manager_required | bot_cannot_send | forbidden`, `404 channel_not_found`, `502 discord_error`, `504 bot_timeout`.
+
+### POST /guilds/{guild_id}/racing/{game}/announcement
+
+`/racing {game} announcement`. Needs **Manage Server, Administrator, or a Manager / Coach of one of this game's teams**.
+Request: `{ "channel_id": "777…", "title": "Round 3!", "message": "Full text… :emoji_name:", "image_url": "https://…" }` — `title` 1–150 (single line), `message` 1–1500, `image_url` optional **https** URL ≤ 500
+(the command also lets `http://` links through; the API is stricter). `:emoji_name:` of the server's emoji is converted like the command does; nothing else is escaped, so Discord formatting characters render.
+The footer reads `Posted via Nexus App by {name} · {server footer}`. Response `201`: `{ "ok": true, "game", "message_id", "channel_id" }`.
+Errors: `400 invalid_title | invalid_message | invalid_channel | invalid_image_url`, `403 manager_required | bot_cannot_send | forbidden`, `404 channel_not_found`, `502 discord_error`, `504 bot_timeout`.
+
+### Things that cannot be done through the API (M5)
+
+* **Setting, toggling or removing someone else's attendance**, and **editing or deleting an attendance post** — drivers toggle their own status in Discord and no command does the rest.
+* **Editing or deleting a team, an event or a result** — no command does it (and a team's role is created once, never renamed).
+* **A free-text roster role.** The commands accept any text; the app offers the four roles `Race Driver`, `Reserve`, `Coach`, `Manager` (the leader check only knows Manager and Coach).
+* **Looking a member up by name.** The commands' robust username search is replaced by the member ID the app gets from `GET /members`.
+* **Finding an attendance post's channel** — it is not stored.
+* **Bot statistics and the dashboard activity feed** (`push_log`) are not touched (same as M3 / M4).
+* **Reading without being staff.** The commands let anyone read teams, events and results; the API (and so the app) needs the staff check for every endpoint.
+
+### Command quirks found during M5 (not changed)
+
+* **`roster-add` rolls back by removing the role even when the member was already on the roster**, which also strips a team role they legitimately had. The API checks the roster first and only rolls back a role it added itself.
+* **`roster-add` and the roster check do not validate the role text** (any 30 characters), so `"manager "` or `"Captain"` is stored as typed; the leader check only recognises `manager` / `coach` (case-insensitive).
+* **`event-add` does not validate the date**; an unparseable date is kept and listed last forever, and `03/04/2026` is read as March 4th (the `MM/DD/YYYY` format is tried before `DD/MM/YYYY`).
+* **`roster-info` / `team-stats` / `event-calendar` show at most 20 entries** (and a roster longer than 1024 characters is cut) without saying so.
+* **The announcement title is not escaped** (`📢 {title}`) and an `http://` image link is accepted; the description is only emoji-converted.
+* **A deleted team role** makes `roster-add` fail ("Team role not found") with no way to relink it, and a deleted team cannot be removed.
+* **`/racing lmu` still carries its own copy of every handler** (`class_focus` / `class` field names, own view and custom ids). The shared helpers behind them are now one set of functions, but the two storage shapes remain.
 
 ---
 
