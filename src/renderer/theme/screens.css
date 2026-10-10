@@ -263,3 +263,5 @@ th[aria-sort='ascending'] .sort-btn, th[aria-sort='descending'] .sort-btn { colo
 .season-line { display: flex; align-items: flex-end; flex-wrap: wrap; gap: var(--space-2); }
 .season-line .field { width: 160px; }
 .season-line .badge { margin-bottom: 8px; }
+.report-cards { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.notice .lucide { vertical-align: -2px; }
