@@ -6,12 +6,13 @@ bot's Flask app. This file is the contract: **every registered route is listed h
 
 **Status:** Auth + base, **M1 — Foundations, Games & tiers, Server settings, Overview**,
 **M2 — F1 league core (calendar, teams and drivers, standings, points system)** and
-**M3 — Reports, penalty points, bans, dirty drivers** (plus a results ledger and the points-system defaults).
-M4–M5 (attendance, sign-ups, esports) are not built yet.
+**M3 — Reports, penalty points, bans, dirty drivers** (plus a results ledger and the points-system defaults) and
+**M4 — Attendance (divisions and posts) and sign-ups (questions, panels, participants)**.
+M5 (esports) is not built yet.
 
 Contents: [Conventions](#conventions) · [Auth](#auth) · [Base](#base-endpoints) · [Pickers](#pickers) ·
 [Overview](#overview) · [Server settings](#server-settings) · [Games & tiers](#games--tiers) · [F1 league](#f1-league) ·
-[Reports and penalties](#reports-and-penalties-m3) · [Sync notes](#sync-with-discord)
+[Reports and penalties](#reports-and-penalties-m3) · [Attendance and sign-ups](#attendance-and-sign-ups-m4) · [Sync notes](#sync-with-discord)
 
 ---
 
@@ -47,6 +48,7 @@ Branch on `error`, show `message`. Unexpected failures are `500 internal_error` 
 | 403 | `forbidden` | Caller is not staff in that server (or cannot see the target channel) |
 | 403 | `admin_required` | Endpoint needs Administrator (not just staff) |
 | 403 | `bot_cannot_send` | The bot lacks permission to post in that channel |
+| 409 | `already_closed` / `confirmation_channel_ambiguous` / … | State conflicts (codes listed per endpoint) |
 | 404 | `guild_not_found` | The bot is not in that server |
 | 404 | `not_found` | Unknown endpoint |
 | 405 | `method_not_allowed` | Wrong HTTP method |
@@ -79,7 +81,8 @@ store as `{ts, user_id, username, guild_id, action, detail}`. Actions: `announce
 `settings.update`, `league.game.create|enable|disable|delete`, `league.tier.create|update|delete`,
 `league.panel.post|refresh`, `f1.calendar.rename|post|edit_post`, `f1.calendar.round.create|update|delete`,
 `f1.team.create`, `f1.driver.add|remove`, `f1.results.record`, `f1.points_system.update`, `f1.report.decide`,
-`f1.penalty_settings.update`, `f1.penalty.add|clear|ban_give|ban_remove|advance_race`, `f1.dirty_driver.report|remove_report`.
+`f1.penalty_settings.update`, `f1.penalty.add|clear|ban_give|ban_remove|advance_race`, `f1.dirty_driver.report|remove_report`,
+`attendance.division.update`, `attendance.post.create`, `signup.questions.update`, `signup.create`, `signup.close`, `signup.participant.remove`.
 
 ---
 
@@ -989,6 +992,223 @@ Errors: `400 invalid_driver | invalid_reason | invalid_evidence_url | invalid_re
 `/league remove-report`. Query: `driver` (required). Removes report number `index` (1-based, as in the history); removing a driver's last report
 removes the driver from the list. Response `200`: `{ "ok": true, "display_name", "removed_index", "driver_removed", "removed": { … } }`.
 Errors: `400 invalid_driver`, `404 report_not_found`.
+
+---
+
+## Attendance and sign-ups (M4)
+
+The app and the Discord commands, buttons and modals share the **same data, builders and locks**; nothing here has its own schema.
+
+| Area | Mirrors | Data (`file_key`) | Lock the commands, buttons and API all take |
+|---|---|---|---|
+| Divisions | `/f1 attendance-setup` | `data/attendance_config.json` | `_att_cfg_lock` (also used by the legacy `"Main"` migration) |
+| Attendance posts | `/f1 attendance` + the Present / Absent / Reserve buttons | `data/attendance.json` | `_f1_lock` |
+| Sign-up questions | `/server settings` → Sign-up Questions | `data/settings.json` (`signup_questions`) | `_settings_lock` |
+| Sign-ups | `/league signup`, `signup-close`, `signup-list`, `signup-remove` + the Start Sign-up flow | `data/signups.json`, held in the bot's in-memory `signups_data` | `_signups_lock` |
+
+Every one of these roles is the same as the command it mirrors: **STAFF, FIA or Administrator** (the standard staff check), except the sign-up questions
+write, which needs **Administrator** like `/server settings`. Drivers toggle their own attendance and submit their own sign-up in Discord only (see
+[what cannot be done](#things-that-cannot-be-done-through-the-api-m4)).
+
+Posts are made on the bot's event loop with a 10 s timeout. The bot's permissions are checked **before** posting and answered with a clear code
+(`bot_cannot_send`, `bot_cannot_post_confirmations`, `bot_missing_manage_channels`, …) rather than a generic error. Member IDs are validated against the server.
+
+### Attendance divisions
+
+`attendance_config.json`: `{ guild: { "divisions": { "<name>": { "regular_drivers": [user_id], "reserve_drivers": [user_id] } } } }`. **Regular drivers** are marked Present
+when a post is created; **reserve drivers** cannot use the regular Present button, only Reserve. A server set up before multi-division support
+has `regular_drivers` / `reserve_drivers` at the top level instead; reading divisions (here or in Discord) copies them once into a division called `Main`
+(the old keys are kept, because old posts without a division still read them).
+
+### GET /guilds/{guild_id}/f1/attendance/divisions
+
+```json
+{ "divisions": [ { "name": "Elite",
+                   "regular_drivers": [ { "user_id": "2001", "name": "Ally", "in_server": true } ],
+                   "reserve_drivers": [ { "user_id": "2003", "name": "carol_x", "in_server": true } ] } ],
+  "legacy": null }
+```
+
+Sorted by name. `name` is the member's current display name, or `null` (`in_server: false`) for someone who left. `legacy` is `{ "regular_drivers": […], "reserve_drivers": […] }`
+(same row shape) only on a server that still has the pre-division top-level lists.
+
+### PUT /guilds/{guild_id}/f1/attendance/divisions
+
+Creates a division, or replaces one or both of its lists — what `/f1 attendance-setup` does with its "Update regular / Update reserve / Replace both" choices.
+
+Request: `{ "name": "Elite", "regular_drivers": ["2001"], "reserve_drivers": ["2003"] }`.
+`name` 1–50 characters, single line (case-sensitive, exactly what the command stores; `Elite`, `Gold`, `Pro-Am 2`, … all work). Each list is optional:
+**a list you leave out keeps its current value** (a new division starts with empty lists); `[]` clears it. At most **25** user IDs per list (the command's select limit),
+all strings, all members of the server, duplicates are collapsed.
+
+Response `201` (created) or `200` (updated): `{ "division": { …as in the list… }, "created": true, "overlap": [] }`.
+`overlap` lists user IDs that are in **both** lists. The command has no rule against that and neither does the API (it stores what you send), but such a driver is
+auto-marked Present at creation and then cannot use the Present button — worth warning the user.
+
+Errors: `400 invalid_name | invalid_regular_drivers | invalid_reserve_drivers | member_not_found | no_changes | invalid_request`.
+`no_changes` = the division exists and the body has neither list.
+
+### Attendance posts
+
+`attendance.json`: `{ guild: { "<message_id>": { season, round, circuit, division, description, guild_id, attendance: { present, absent, reserve: [ { id, name } ] } } } }`.
+The post's buttons are the bot's global persistent view, so a post created through the API **keeps working after a bot restart** exactly like one made with `/f1 attendance`.
+
+### GET /guilds/{guild_id}/f1/attendance/posts
+
+Newest first. Query: `division` (exact), `season` (exact text), `limit` (1–100, default 25), `offset`.
+
+```json
+{ "posts": [ { "message_id": "700…", "season": "16", "round": "5", "circuit": "Zandvoort", "division": "Elite",
+               "description": "Sprint weekend", "counts": { "present": 1, "absent": 1, "reserve": 0 } } ],
+  "total": 2, "limit": 25, "offset": 0 }
+```
+
+Errors: `400 invalid_division | invalid_season | invalid_limit | invalid_offset`.
+
+### GET /guilds/{guild_id}/f1/attendance/posts/{message_id}
+
+The same fields plus `"attendance": { "present": […], "absent": […], "reserve": […] }`, every entry `{ "user_id", "name", "in_server" }` where `name` is the member's
+**current** display name (falling back to the name stored when they clicked). Errors: `400 invalid_message_id`, `404 post_not_found`.
+
+### POST /guilds/{guild_id}/f1/attendance/posts
+
+Posts the same embed and the same persistent Present / Absent / Reserve buttons as `/f1 attendance`, with the division's regular drivers marked Present, and stores the post.
+The embed is built by the command's own builder, so it is identical (and the buttons re-render it identically).
+
+Request: `{ "channel_id": "777…", "division": "Elite", "season": "16", "round": "5", "circuit": "Zandvoort", "description": "Sprint weekend" }`.
+`channel_id` must be a text channel from `GET /channels`. `season` and `round` are 1–10 characters (a number is accepted and stored as text, like the modal),
+`circuit` 1–100, `description` optional ≤ 200, `division` must already exist (create it with `PUT /f1/attendance/divisions`).
+Regular drivers who are no longer in the server are skipped, like the command.
+
+Response `201`: `{ "post": { …as in the single read… }, "channel_id": "777…" }`. The message ID in `post.message_id` is the only handle to the post: the channel is not stored.
+
+Errors: `400 invalid_channel | invalid_division | invalid_season | invalid_round | invalid_circuit | invalid_description`,
+`404 division_not_found | channel_not_found`, `403 bot_cannot_send | forbidden`, `502 discord_error`, `504 bot_timeout`.
+If the post cannot be stored after it was sent, the message is deleted again.
+
+### Sign-up questions
+
+`settings.json[guild].signup_questions`: a list of up to 2 custom question labels used by every sign-up form that has no questions of its own.
+Empty (`[]`) means the **default questions** are used.
+
+### GET /guilds/{guild_id}/league/signup-questions
+
+```json
+{ "questions": ["What is your team?"], "using_defaults": false,
+  "default_questions": [ { "label": "What is your first name?", "placeholder": null, "required": true }, … 6 in total ],
+  "effective_questions": [ { "label": "What is your team?", "placeholder": null, "required": true } ],
+  "max_questions": 2, "max_question_length": 45, "can_edit": true }
+```
+
+`effective_questions` is what the sign-up form really asks (the custom questions if any, otherwise the defaults). Any staff member may read; `can_edit` is true for an Administrator.
+
+### PUT /guilds/{guild_id}/league/signup-questions
+
+**Administrator only** (like `/server settings`). Request: `{ "questions": ["What is your team?", "Referred by"] }` — replaces the list; `[]` restores the defaults.
+At most **2** questions (what the settings flow keeps), each 1–45 characters (a Discord form label is cut at 45, and the label is also the key of the answer),
+single line, **no commas** (the settings modal splits on commas, so a stored question never has one) and unique. Response `200`: the same body as the GET.
+Errors: `403 admin_required`, `400 invalid_questions | invalid_request`.
+
+### Sign-ups
+
+`signups.json`: `{ guild: { "<panel_message_id>": { title, description, fields, confirmation_channel, panel_channel_id, status, close_date, created_by, created_at, participants } } }`
+where `participants` is `{ "<user_id>": { username, platform, platform_name, platform_emoji, platform_username, fields: { "<question>": "<answer>" }, timestamp } }`.
+The `signup_id` used below is the panel message's ID. The bot keeps this data in memory (the panel buttons hold references into it), so the API changes that very
+dictionary under the same lock and saves it; a sign-up submitted in Discord and an app write at the same moment cannot overwrite each other.
+
+**Everything a driver typed is untrusted** and is returned as plain data (never escaped or rewritten): escape it yourself when you render it.
+
+### GET /guilds/{guild_id}/league/signups
+
+Newest first. Query: `status` = `open` | `closed`.
+
+```json
+{ "signups": [ { "signup_id": "810…", "title": "Season 16 Sign-up", "description": "Rules", "status": "open", "close_date": "2026-06-01",
+                 "fields": [], "panel_channel_id": "777…", "confirmation_channel": "signup-confirmations",
+                 "created_by": "1001", "created_at": "2026-01-01T00:00:00Z", "participant_count": 2 } ] }
+```
+
+`fields` is the list of per-sign-up custom questions (only `/league signup`'s "custom questions" box sets it; empty means the server's questions or the defaults).
+`confirmation_channel` is a channel **name** (see create). Errors: `400 invalid_status`.
+
+### GET /guilds/{guild_id}/league/signups/{signup_id}
+
+`{ "signup": { …one entry of the list… } }`. Errors: `400 invalid_signup_id`, `404 signup_not_found`.
+
+### GET /guilds/{guild_id}/league/signups/{signup_id}/participants
+
+Everyone who signed up, in sign-up order, with all answers (`/league signup-list` shows 10 per page and only 3 answers; this returns everything). Query: `limit` (1–100, default 25), `offset`.
+
+```json
+{ "signup": { … }, "total": 2, "limit": 25, "offset": 0,
+  "participants": [ { "user_id": "2001", "username": "alice", "display_name": "Ally", "in_server": true,
+                      "platform": "steam", "platform_name": "Steam", "platform_emoji": "🖥️", "platform_username": "Racer1",
+                      "answers": [ { "question": "What is your first name?", "answer": "alice" } ],
+                      "timestamp": "2026-01-02T00:00:00Z" } ] }
+```
+
+`answers` is an ordered **list** (the question order of the form; an object would be re-sorted by JSON consumers when a question looks like a number).
+`display_name` is `null` when the member left. Errors: `400 invalid_signup_id | invalid_limit | invalid_offset`, `404 signup_not_found`.
+
+### POST /guilds/{guild_id}/league/signups
+
+Posts the same sign-up panel as `/league signup` — the same embed and the same persistent **"✅ Start Sign-up"** button (`nexus:signup_start`) — and registers the sign-up.
+
+Request: `{ "title": "Season 16 Sign-up", "description": "Rules…", "channel_id": "777…", "confirmation_channel_id": "777…", "close_date": "2026-06-01" }`.
+`title` 1–150 (single line), `description` optional ≤ 1000, `close_date` optional free text ≤ 50 (shown in the panel footer, like the command; nothing closes automatically),
+`channel_id` a text channel from `GET /channels` where the panel is posted. The "Info Requested" list on the panel shows the server's custom questions, or the defaults.
+
+**How the confirmation channel works (same as the command).** Every time a driver finishes a sign-up the bot posts a confirmation embed to the channel
+*named* `confirmation_channel`, found by a forgiving name match (emoji and case ignored), and **creates `📋<name>` if nothing matches**. The sign-up stores that **name**, not an ID.
+So the API: with `confirmation_channel_id` stores that channel's name and checks the bot can post there (`bot_cannot_post_confirmations`) and that the name resolves back to
+**that** channel (`409 confirmation_channel_ambiguous` otherwise); without it uses the command's default `signup-confirmations` and checks that the bot can post
+in the existing channel with that name, or — when there is none yet — has **Manage Channels** to create it (`bot_missing_manage_channels`). The API itself never creates a channel.
+
+Response `201`: `{ "signup": { …as in the list… }, "channel_id": "777…" }`.
+Errors: `400 invalid_title | invalid_description | invalid_close_date | invalid_channel | invalid_confirmation_channel`,
+`404 channel_not_found | confirmation_channel_not_found`, `403 bot_cannot_send | forbidden | bot_cannot_post_confirmations | bot_missing_manage_channels`,
+`409 confirmation_channel_ambiguous`, `502 discord_error`, `504 bot_timeout`. If the sign-up cannot be stored after the panel was sent, the panel is deleted again.
+
+### POST /guilds/{guild_id}/league/signups/{signup_id}/close
+
+`/league signup-close`: sets the status to `closed` (saved first, like the command), then greys out the panel embed (footer "⛔ Sign-ups are now closed · {server}") and disables its button
+(label "🔒 Sign-ups Closed"). No body.
+
+Response `200`: `{ "ok": true, "signup": { … }, "panel_updated": true, "panel_error": null }`. If the sign-up was closed but the panel could not be edited
+(the command only logs this), `panel_updated` is `false` and `panel_error` is one of `panel_channel_unknown | panel_channel_not_found | panel_message_not_found | bot_cannot_edit_panel | discord_error | bot_unavailable | bot_timeout`.
+Errors: `400 invalid_signup_id`, `404 signup_not_found`, `409 already_closed`.
+
+### DELETE /guilds/{guild_id}/league/signups/{signup_id}/participants/{user_id}
+
+`/league signup-remove` as staff: removes anyone's entry — also from a closed sign-up and also for someone who has left the server (the command needs a current member). No body.
+Response `200`: `{ "ok": true, "removed": { "user_id": "2001", "username": "alice" }, "participant_count": 1 }`.
+Errors: `400 invalid_signup_id | invalid_user_id`, `404 signup_not_found | participant_not_found`.
+
+### Things that cannot be done through the API (M4)
+
+* **Setting, toggling or removing someone else's attendance.** Drivers do that themselves with the buttons; no command does it for them. (The API only reads.)
+* **Editing or deleting an attendance post**, and **deleting a division** — no command does either, so there is no endpoint (`PUT` a list to change a division, or empty it).
+* **Finding an attendance post's channel or a jump link** — `attendance.json` stores no channel ID and the schema was not extended.
+* **Signing someone up, or editing/replacing their answers.** Drivers sign up in Discord (platform select → forms). Staff can only remove an entry.
+* **Reopening, editing or deleting a sign-up** — there is no command for it.
+* **Per-sign-up custom questions** (the "custom questions" box of `/league signup`): the API creates sign-ups that use the server's questions (`PUT /league/signup-questions`) or the defaults.
+* **Creating the confirmation channel** — the bot does that itself, lazily, when the first driver signs up (the API only verifies it can).
+* **Emoji conversion and underscore escaping of the panel title / description / circuit.** The commands do neither for these fields (only member names are escaped, by the shared embed builder), and an
+  attendance post is re-rendered from its stored data on every click, so the API deliberately posts exactly what the command would: the same input gives the same message.
+* **Bot statistics and the dashboard activity feed** (`stats["f1_attendances"]`, `push_log`) that `/f1 attendance` bumps are not touched (same as M3).
+
+### Command quirks found during M4 (not changed)
+
+* **`/f1 attendance-setup` has no overlap rule**: a driver can be in both lists. They are then auto-marked Present and refused by the Present button. (`overlap` in the PUT response lets the app warn.)
+* **Editing the `Main` division does not touch the legacy top-level lists**, which posts created before multi-division support (no `division`) keep reading.
+* **The "Regular drivers marked as present automatically" note on an attendance embed** looks at the *legacy* guild-wide list, so it never shows on a server that only uses divisions.
+* **`/league signup-remove`** needs the target to be a current member (the API does not), and **`/league signup-list`** puts a sign-up's answers into an embed unescaped (the confirmation embed escapes them).
+* **Sign-up confirmations fail silently**: if the bot cannot post to / create the confirmation channel the driver still sees "signed up" and only the log says otherwise. The channel is re-resolved by a fuzzy name on every submission, so renaming or adding a similarly named channel can redirect it.
+* **`_find_signup(title)`** returns the *first* sign-up whose title contains the text (not the newest), so a reused title can hit an old sign-up.
+* **The settings modal** keeps 2 questions silently, cannot store a comma, and two questions sharing their first 45 characters would overwrite each other's answer.
+* **`/league signup`, `signup-close` and `signup-remove` change the in-memory sign-ups without holding `_signups_lock`** (only the save is locked) — a concurrent save can in theory iterate a dictionary that is being changed.
+  The participant write (`_finalize_signup`), the API and the create modal now hold the lock for the whole change.
+* **`_toggle`, the attendance post and the setup / migration code used an unlocked load → modify → save** (two simultaneous clicks, or a click and an app write, could drop one). They now use the locked update helpers; behaviour is otherwise identical (proven by `scripts/test_bot_extractions_m4.py`).
 
 ---
 
