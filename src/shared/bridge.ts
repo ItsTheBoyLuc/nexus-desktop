@@ -1,6 +1,31 @@
 import type {
   AddDriverInput,
   AddDriverResult,
+  AdvanceRaceInput,
+  AdvanceRaceResult,
+  BanInput,
+  BanResult,
+  ClearPointsInput,
+  ClearPointsResult,
+  DecisionInput,
+  DecisionResult,
+  DirtyDriver,
+  DirtyHistory,
+  DirtyRemoveResult,
+  DirtyReportInput,
+  DirtyReportResult,
+  ManualPointsInput,
+  ManualPointsResult,
+  PenaltyHistory,
+  PenaltyOverview,
+  PenaltySettings,
+  PenaltySettingsInput,
+  Report,
+  ReportFilters,
+  ReportPage,
+  ReportRoundDetail,
+  ReportRoundRow,
+  ServerLedgerEntry,
   AnnouncementInput,
   AnnouncementResult,
   ApiStatus,
@@ -121,6 +146,31 @@ export interface NexusBridge {
     recordResults: (guildId: string, input: ResultsInput) => Promise<IpcResult<RaceOutcome>>
     pointsSystem: (guildId: string) => Promise<IpcResult<PointsSystem>>
     savePointsSystem: (guildId: string, input: PointsSystemInput) => Promise<IpcResult<PointsSystem>>
+    /** The races recorded through the app (newest first): the server's duplicate guard. Races recorded with Discord commands are not in it. */
+    resultsLedger: (guildId: string, query?: { season?: string; round?: string }) => Promise<IpcResult<ServerLedgerEntry[]>>
+
+    // Reports, penalties and dirty drivers (milestone 3). Writes are sent once and never replayed.
+    reports: (guildId: string, filters?: ReportFilters) => Promise<IpcResult<ReportPage>>
+    reportRounds: (guildId: string) => Promise<IpcResult<ReportRoundRow[]>>
+    reportRound: (guildId: string, season: string, round: string) => Promise<IpcResult<ReportRoundDetail>>
+    report: (guildId: string, reportId: string) => Promise<IpcResult<Report>>
+    /** 409 already_decided / penalty_not_configured, 404 or 409 report_message_not_found, 500 penalty_points_failed: see docs/APP_API.md. */
+    decideReport: (guildId: string, reportId: string, input: DecisionInput) => Promise<IpcResult<DecisionResult>>
+
+    penaltySettings: (guildId: string) => Promise<IpcResult<PenaltySettings>>
+    savePenaltySettings: (guildId: string, input: PenaltySettingsInput) => Promise<IpcResult<PenaltySettings>>
+    penaltyOverview: (guildId: string, season?: number) => Promise<IpcResult<PenaltyOverview>>
+    penaltyHistory: (guildId: string, driver: string, season?: number) => Promise<IpcResult<PenaltyHistory>>
+    addPenaltyPoints: (guildId: string, input: ManualPointsInput) => Promise<IpcResult<ManualPointsResult>>
+    /** The destructive three need `confirm: true`, which the screens set only after their confirm dialog. */
+    clearPenaltyPoints: (guildId: string, input: ClearPointsInput) => Promise<IpcResult<ClearPointsResult>>
+    setBan: (guildId: string, input: BanInput) => Promise<IpcResult<BanResult>>
+    advanceRace: (guildId: string, input: AdvanceRaceInput) => Promise<IpcResult<AdvanceRaceResult>>
+
+    dirtyDrivers: (guildId: string) => Promise<IpcResult<DirtyDriver[]>>
+    dirtyHistory: (guildId: string, driver: string) => Promise<IpcResult<DirtyHistory>>
+    addDirtyReport: (guildId: string, input: DirtyReportInput) => Promise<IpcResult<DirtyReportResult>>
+    removeDirtyReport: (guildId: string, driver: string, index: number) => Promise<IpcResult<DirtyRemoveResult>>
 
     /** Current connection status (components that mount late would otherwise miss earlier events). */
     getStatus: () => Promise<ApiStatus>
@@ -136,5 +186,7 @@ export interface NexusBridge {
   system: {
     /** Resolves false when the URL is not on the https allowlist. */
     openExternal: (url: string) => Promise<boolean>
+    /** Copies plain text to the clipboard (at most 4000 characters). Resolves false when it was refused. */
+    copyText: (text: string) => Promise<boolean>
   }
 }

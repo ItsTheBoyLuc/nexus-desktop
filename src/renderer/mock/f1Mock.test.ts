@@ -14,8 +14,12 @@ const MIDNIGHT = '555000000000000004'
 const CHANNELS = [
   { id: '777000000000000001', name: 'announcements' },
   { id: '777000000000000002', name: 'race-results' },
-  { id: '777000000000000003', name: 'league-news' }
+  { id: '777000000000000003', name: 'league-news' },
+  { id: '777000000000000099', name: 'timeout-test' }
 ]
+const LOCKED = '777000000000000098'
+const HIDDEN = '777000000000000097'
+const TIMEOUT = '777000000000000099'
 const mid = (n: number): string => `20000000000${String(n).padStart(7, '0')}`
 
 function setup(scenario = 'normal') {
@@ -29,6 +33,8 @@ function setup(scenario = 'normal') {
     known: (id) => id === APEX || id === MIDNIGHT,
     channels: CHANNELS,
     timeoutChannel: '777000000000000099',
+    lockedChannel: '777000000000000098',
+    hiddenChannel: '777000000000000097',
     getSettings: () => settings,
     setSettings: (value) => {
       settings = value
@@ -146,20 +152,69 @@ describe('team cases', () => {
 describe('race result cases', () => {
   const race = (over: Record<string, unknown> = {}) => ({ season: '6', round: '1', circuit: 'Spa', results: [mid(2), mid(1), mid(4)], ...over })
 
-  it('the server awards the points; recording adds them (and a second recording adds them again)', async () => {
+  it('the server awards the points; recording adds them (and a confirmed second recording adds them again)', async () => {
     const { api, settings } = setup()
     const before = ok(await api.standings(APEX)).drivers.find((row) => row.userId === mid(2))!.points
     const outcome = ok(await api.recordResults(APEX, race({ fastestLap: mid(1), pole: mid(2) })))
     expect(outcome.results.map((line) => line.points)).toEqual([25, 19, 15]) // P1 25, P2 18 + fastest lap 1, P3 15
     expect(ok(await api.standings(APEX)).drivers.find((row) => row.userId === mid(2))!.points).toBe(before + 25)
-    ok(await api.recordResults(APEX, race()))
+    // The server's ledger now knows the race: without the confirmation the second recording is refused and changes nothing.
+    expect(code(await api.recordResults(APEX, race()))).toBe('results_already_recorded')
+    expect(ok(await api.standings(APEX)).drivers.find((row) => row.userId === mid(2))!.points).toBe(before + 25)
+    expect(ok(await api.recordResults(APEX, race({ confirmDuplicate: true }))).ledger).toEqual({ recorded: true, duplicate: true })
     expect(ok(await api.standings(APEX)).drivers.find((row) => row.userId === mid(2))!.points).toBe(before + 50)
     expect(findLedgerEntries(settings().ledger, APEX, '6', '1')).toHaveLength(2)
   })
 
-  it('Apex starts with Season 5 round 3 in the ledger', () => {
-    const { settings } = setup()
+  it('Apex starts with Season 5 round 3 in both ledgers: the one on the server and the one of this app', async () => {
+    const { api, settings } = setup()
     expect(findLedgerEntries(settings().ledger, APEX, '5', '3')).toHaveLength(1)
+    expect(ok(await api.resultsLedger(APEX, { season: '5', round: '3' }))).toEqual([expect.objectContaining({ season: '5', round: '3', circuit: 'Zandvoort', recordedBy: 'DemoStaff' })])
+    expect(ok(await api.resultsLedger(APEX, { season: ' S5 ' }))).toEqual([])
+    expect(ok(await api.resultsLedger(MIDNIGHT))).toEqual([])
+  })
+
+  it('results_already_recorded: season and round are compared as trimmed, case-insensitive text; the answer changes nothing', async () => {
+    const { api, settings } = setup()
+    const before = ok(await api.standings(APEX))
+    expect(code(await api.recordResults(APEX, race({ season: ' 5 ', round: '3' })))).toBe('results_already_recorded')
+    expect(ok(await api.standings(APEX))).toEqual(before)
+    expect(findLedgerEntries(settings().ledger, APEX, '5', '3')).toHaveLength(1) // no new local entry either
+    expect(code(await api.recordResults(APEX, race({ season: '5', round: '03' })))).toBe('ok') // "03" is not "3" for the server
+  })
+
+  it('a circuit containing "late-duplicate": the ledger read shows nothing, the POST still answers 409 until confirm_duplicate is sent', async () => {
+    const { api } = setup()
+    expect(ok(await api.resultsLedger(APEX, { season: '6', round: '1' }))).toEqual([])
+    expect(code(await api.recordResults(APEX, race({ circuit: 'late-duplicate' })))).toBe('results_already_recorded')
+    expect(ok(await api.recordResults(APEX, race({ circuit: 'late-duplicate', confirmDuplicate: true }))).ledger?.duplicate).toBe(true)
+  })
+
+  it('noledger: the ledger endpoint fails (the form falls back to its local record)', async () => {
+    const { api } = setup('noledger')
+    expect(code(await api.resultsLedger(APEX, { season: '5', round: '3' }))).toBe('internal_error')
+    expect(code(await api.recordResults(APEX, race({ season: '9' })))).toBe('ok') // recording itself works
+  })
+
+  it('the results channel is checked before anything is recorded: bot_cannot_send, forbidden and channel_not_found record nothing', async () => {
+    const { api, settings } = setup()
+    const before = ok(await api.standings(APEX))
+    expect(code(await api.recordResults(APEX, race({ channelId: LOCKED })))).toBe('bot_cannot_send')
+    expect(code(await api.recordResults(APEX, race({ channelId: HIDDEN })))).toBe('forbidden')
+    expect(code(await api.recordResults(APEX, race({ channelId: '777000000000000555' })))).toBe('channel_not_found')
+    expect(ok(await api.standings(APEX))).toEqual(before)
+    expect(ok(await api.resultsLedger(APEX, { season: '6', round: '1' }))).toEqual([])
+    expect(findLedgerEntries(settings().ledger, APEX, '6', '1')).toHaveLength(0)
+  })
+
+  it('a channel that works gets the three embeds; a post that fails afterwards leaves the points recorded and says so (announce_error)', async () => {
+    const { api } = setup()
+    const posted = ok(await api.recordResults(APEX, race({ channelId: CHANNELS[1]!.id })))
+    expect(posted.posted?.messageIds).toHaveLength(3)
+    expect(posted.announceError).toBeNull()
+    const failed = ok(await api.recordResults(APEX, race({ round: '2', channelId: TIMEOUT })))
+    expect(failed).toMatchObject({ posted: null, announceError: 'discord_error' })
+    expect(failed.results.length).toBeGreaterThan(0) // recorded
   })
 
   it('a driver the server does not know scores nothing and is listed as not found', async () => {
@@ -203,5 +258,9 @@ describe('race result cases', () => {
     const saved = ok(await api.savePointsSystem(APEX, { points: [10, 9, 8, ...Array(17).fill(0)] as number[], pole: 2, fastestLap: 3 }))
     expect(saved).toMatchObject({ isDefault: false, pole: 2, fastestLap: 3 })
     expect(saved.points).toHaveLength(20)
+    // The built-in table comes with every answer, also after a custom system was saved ("Reset to defaults").
+    expect(saved.defaults).toMatchObject({ pole: 0, fastestLap: 1 })
+    expect(saved.defaults?.points.slice(0, 3)).toEqual([25, 18, 15])
+    expect(ok(await api.pointsSystem(MIDNIGHT)).defaults?.points[0]).toBe(25)
   })
 })

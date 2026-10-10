@@ -22,7 +22,8 @@ export function planResultsSubmit(ledger: readonly LedgerEntry[], guildId: strin
   return { repeat: earlier.length > 0, earlier }
 }
 
-export type ResultsPhase = 'editing' | 'confirming' | 'saving' | 'saved' | 'lost'
+/** `checking`: the server's results ledger is being read before the confirm dialog opens. */
+export type ResultsPhase = 'editing' | 'checking' | 'confirming' | 'saving' | 'saved' | 'lost'
 
 export type ResultsAction = 'edit' | 'confirm' | 'cancel' | 'record' | 'refresh-standings' | 'back-to-standings' | 'enter-another'
 
@@ -36,6 +37,7 @@ export function availableActions(phase: ResultsPhase): ResultsAction[] {
       return ['edit', 'confirm']
     case 'confirming':
       return ['cancel', 'record']
+    case 'checking':
     case 'saving':
       return []
     case 'saved':

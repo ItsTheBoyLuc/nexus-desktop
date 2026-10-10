@@ -6,9 +6,10 @@ import { codePointLength, isValidSnowflake } from './validation'
  * What the app remembers locally about the F1 league, in userData/settings.json:
  *
  *  - the calendar message it posted, per server (the API does not store message ids),
- *  - a ledger of races it recorded successfully (the API stores no per-race results, so it can
- *    never tell that a race was already recorded; the ledger is only a local warning, and it cannot
- *    know about races recorded through Discord commands or on another device).
+ *  - a ledger of races it recorded successfully. Since milestone 3 the SERVER keeps the duplicate guard
+ *    (its results ledger and confirm_duplicate); this local ledger is only the FALLBACK used when the
+ *    server's ledger cannot be read. Neither ledger knows about races recorded through Discord commands,
+ *    and this one also does not know about races recorded on another device.
  *
  * Only the main process writes either of them, and only after the API confirmed the outcome.
  */

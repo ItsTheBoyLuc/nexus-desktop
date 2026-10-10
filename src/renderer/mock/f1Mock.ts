@@ -14,15 +14,20 @@
  *                bot_missing_manage_roles, posting the calendar returns 403 bot_cannot_send
  *   nofia        staff without the FIA role: recording results and saving the points system return 403 fia_required
  *   lostresults  every "record results" is applied, then the answer is lost (timeout)
+ *   noledger     the server's results ledger cannot be read (500): the form falls back to this app's own record
  *
  * Hooks (normal scenario):
  *   Circuit containing "ambiguous"  the server answers 400 ambiguous_name when a fastest lap or pole is chosen
  *   Circuit containing "timeout"    the race IS recorded, then the answer is lost
+ *   Circuit containing "late-duplicate"  the ledger read shows nothing, but the POST answers 409 results_already_recorded
+ *                                    (somebody recorded the race in between) until confirm_duplicate is sent
+ *   Results channel #bot-locked      403 bot_cannot_send, answered before anything is recorded
+ *   Results channel #staff-only      403 forbidden (the caller cannot see it), answered before anything is recorded
  *   A round, team or calendar post to #timeout-test, or a name containing "timeout", behaves the same way
  *
  * Sample data: "Apex Racing League" has 8 rounds, five teams (one without drivers, one driver who has left the
- * server), a calendar message in #announcements that was deleted in Discord, and a ledger entry for Season 5
- * Round 3. "Midnight GT Championship" has 24 rounds (the wizard is open), eight teams and a live calendar message.
+ * server), a calendar message in #announcements that was deleted in Discord, and a recorded race (Season 5
+ * Round 3) in both the server's results ledger and this app's local ledger. "Midnight GT Championship" has 24 rounds (the wizard is open), eight teams and a live calendar message.
  */
 import type {
   AddDriverResult,
@@ -42,6 +47,7 @@ import type {
   RemoveDriverResult,
   ResultLine,
   RoundResult,
+  ServerLedgerEntry,
   Settings,
   Standings,
   Team,
@@ -59,6 +65,10 @@ export interface F1MockContext {
   known: (guildId: string) => boolean
   channels: readonly Channel[]
   timeoutChannel: string
+  /** A channel the bot cannot post in any more (a permission was removed after the list was loaded). */
+  lockedChannel: string
+  /** A channel the caller cannot see: the server answers 403 forbidden. */
+  hiddenChannel: string
   getSettings: () => Settings
   setSettings: (next: Settings) => void
   /** Messages that still exist in Discord (shared with the sign-up panel mock). */
@@ -84,6 +94,7 @@ type F1Api = Pick<
   | 'driver'
   | 'standings'
   | 'recordResults'
+  | 'resultsLedger'
   | 'pointsSystem'
   | 'savePointsSystem'
 >
@@ -158,6 +169,8 @@ interface F1State {
   teams: TeamState[]
   stats: Map<string, Stat>
   points: { points: number[]; pole: number; fastestLap: number; isDefault: boolean }
+  /** The server's results ledger: races recorded through the app, oldest first. */
+  ledger: ServerLedgerEntry[]
 }
 
 const DEFAULT_POINTS = [25, 18, 15, 12, 10, 8, 6, 4, 2, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
@@ -228,7 +241,8 @@ function seedApex(): F1State {
       team('Reserve Squad', 'RES', '#6B7280', 5, [])
     ],
     stats: new Map(stats.map((item) => [item.userId, item])),
-    points: { points: [...DEFAULT_POINTS], pole: 0, fastestLap: 1, isDefault: true }
+    points: { points: [...DEFAULT_POINTS], pole: 0, fastestLap: 1, isDefault: true },
+    ledger: [{ season: '5', round: '3', circuit: 'Zandvoort', recordedBy: 'DemoStaff', timestamp: new Date(Date.now() - 6 * DAY_MS).toISOString() }]
   }
 }
 
@@ -253,12 +267,13 @@ function seedMidnight(): F1State {
     rounds: seedRounds(24, -35, 22),
     teams,
     stats: new Map(stats.map((item) => [item.userId, item])),
-    points: { points: [...DEFAULT_POINTS], pole: 1, fastestLap: 1, isDefault: false }
+    points: { points: [...DEFAULT_POINTS], pole: 1, fastestLap: 1, isDefault: false },
+    ledger: []
   }
 }
 
 function emptyState(): F1State {
-  return { calendarExists: false, calendarName: 'F1 Season Calendar', setupInProgress: false, rounds: [], teams: [], stats: new Map(), points: { points: [...DEFAULT_POINTS], pole: 0, fastestLap: 1, isDefault: true } }
+  return { calendarExists: false, calendarName: 'F1 Season Calendar', setupInProgress: false, rounds: [], teams: [], stats: new Map(), points: { points: [...DEFAULT_POINTS], pole: 0, fastestLap: 1, isDefault: true }, ledger: [] }
 }
 
 // ── The mock ────────────────────────────────────────────────────────────────
@@ -312,7 +327,14 @@ export function createF1Mock(ctx: F1MockContext): { api: F1Api; counts: (guildId
     }
   }
 
-  const pointsView = (state: F1State): PointsSystem => ({ points: [...state.points.points], pole: state.points.pole, fastestLap: state.points.fastestLap, isDefault: state.points.isDefault })
+  // The built-in table is always returned, also after a custom system was saved (the form offers "Reset to defaults").
+  const pointsView = (state: F1State): PointsSystem => ({
+    points: [...state.points.points],
+    pole: state.points.pole,
+    fastestLap: state.points.fastestLap,
+    isDefault: state.points.isDefault,
+    defaults: { points: [...DEFAULT_POINTS], pole: 0, fastestLap: 1 }
+  })
 
   /** The first round dated today or later; every round past = the last one (upcoming: false). */
   function pickNext(state: F1State): { race: CalendarRound; upcoming: boolean } | null {
@@ -511,6 +533,19 @@ export function createF1Mock(ctx: F1MockContext): { api: F1Api; counts: (guildId
         if (!ctx.known(guildId)) return guildMissing()
         const state = stateOf(guildId)
         if (nofia) return refused('fia_required', 'The FIA role or Administrator permission is required.')
+        // The channel is checked before anything is recorded (docs: invalid_channel, channel_not_found, forbidden, bot_cannot_send).
+        if (input.channelId !== undefined) {
+          if (input.channelId === ctx.hiddenChannel) return refused('forbidden', 'You cannot see that channel.')
+          if (!ctx.channels.some((channel) => channel.id === input.channelId) && input.channelId !== ctx.lockedChannel) return notFound('channel_not_found', 'That text channel was not found in this server.')
+          if (input.channelId === ctx.lockedChannel) return refused('bot_cannot_send', 'The bot cannot post in that channel.')
+        }
+        // The duplicate guard: the ledger of the races recorded through the app (same season and round, trimmed, case-insensitive).
+        const sameText = (a: string, b: string): boolean => a.trim().toLowerCase() === b.trim().toLowerCase()
+        const earlier = state.ledger.find((item) => sameText(item.season, input.season) && sameText(item.round, input.round))
+        const lateDuplicate = earlier === undefined && /late-duplicate/i.test(input.circuit)
+        if ((earlier !== undefined || lateDuplicate) && input.confirmDuplicate !== true) {
+          return failure('http', 'results_already_recorded', 'This race was already recorded through the app.', 409)
+        }
         if ((input.fastestLap !== undefined || input.pole !== undefined) && /ambiguous/i.test(input.circuit)) {
           return failure('http', 'ambiguous_name', 'That name matches more than one driver in the results.', 400)
         }
@@ -530,11 +565,35 @@ export function createF1Mock(ctx: F1MockContext): { api: F1Api; counts: (guildId
           state.stats.set(userId, { ...found, points: found.points + points, wins: found.wins + (index === 0 ? 1 : 0), podiums: found.podiums + (index < 3 ? 1 : 0) })
           lines.push({ position: index + 1, name: found.username, points, matched: true })
         })
-        const outcome: RaceOutcome = { raceTitle: `Season ${input.season} Round ${input.round} — ${input.circuit}`, results: lines, notFound: notFoundNames, standings: standingsView(state) }
+        const entry: ServerLedgerEntry = { season: input.season, round: input.round, circuit: input.circuit, recordedBy: 'DemoStaff', timestamp: new Date().toISOString() }
+        state.ledger.push(entry)
+        const duplicate = earlier !== undefined || lateDuplicate
+        const outcome: RaceOutcome = {
+          raceTitle: `Season ${input.season} Round ${input.round} — ${input.circuit}`,
+          results: lines,
+          notFound: notFoundNames,
+          standings: standingsView(state),
+          posted: input.channelId !== undefined ? { channelId: input.channelId, messageIds: [ctx.newMessageId(), ctx.newMessageId(), ctx.newMessageId()] } : null,
+          // A post that fails AFTER the points were recorded: the channel #timeout-test stands in for "Discord rejected the post".
+          announceError: input.channelId !== undefined && input.channelId === ctx.timeoutChannel ? 'discord_error' : null,
+          ledger: { recorded: true, duplicate }
+        }
+        if (outcome.announceError) outcome.posted = null
         // The race IS recorded from here on; a lost answer leaves the ledger untouched, exactly like the real main process.
         if (ctx.scenario === 'lostresults' || lostAnswer(input.circuit)) return timeoutFailure()
         appendLedger({ guildId, season: input.season, round: input.round, circuit: input.circuit, recordedAt: new Date().toISOString() })
         return { ok: true, data: outcome }
+      }),
+
+    resultsLedger: (guildId, query) =>
+      ctx.api<ServerLedgerEntry[]>(() => {
+        if (!ctx.known(guildId)) return guildMissing()
+        if (ctx.scenario === 'noledger') return failure('http', 'internal_error', 'The server hit an unexpected problem.', 500)
+        const wanted = (text: string | undefined): string | undefined => (text === undefined ? undefined : text.trim().toLowerCase())
+        const season = wanted(query?.season)
+        const round = wanted(query?.round)
+        const entries = [...stateOf(guildId).ledger].reverse().filter((item) => (season === undefined || wanted(item.season) === season) && (round === undefined || wanted(item.round) === round))
+        return { ok: true, data: entries.map((item) => ({ ...item })) }
       }),
 
     pointsSystem: (guildId) => ctx.api(() => (ctx.known(guildId) ? { ok: true, data: pointsView(stateOf(guildId)) } : guildMissing())),

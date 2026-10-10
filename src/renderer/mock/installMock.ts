@@ -16,7 +16,8 @@
  *   error                          every API call fails with a 500
  *   slow                           slow answers and the "server is waking up" banner
  *   nogames                        no game is enabled in any server
- *   norounds | nobotperms | nofia | lostresults   F1 league cases, see mock/f1Mock.ts
+ *   norounds | nobotperms | nofia | lostresults | noledger   F1 league cases, see mock/f1Mock.ts
+ *   noreports | nopenaltyconfig | nostaff | lostdecisions | nodirty   reports and penalties, see mock/stewardMock.ts
  *   notadmin                       staff only, not Administrator: saving settings returns 403
  *                                  admin_required and linking an admin-level role returns
  *                                  403 role_too_privileged
@@ -56,6 +57,8 @@ import type {
 
 import { clone, failure, notFound, sleep, timeoutFailure } from './common'
 import { createF1Mock } from './f1Mock'
+import type { F1MockContext } from './f1Mock'
+import { createStewardMock } from './stewardMock'
 
 /** Marker searched for by scripts/check-no-mock.mjs. Do not rename without updating it. */
 export const MOCK_MARKER = 'NEXUS_MOCK_BRIDGE_ACTIVE'
@@ -92,11 +95,16 @@ const CHANNELS: Channel[] = [
   { id: '777000000000000004', name: 'stewards-decisions' },
   { id: '777000000000000005', name: 'sign-ups' },
   { id: '777000000000000006', name: 'tier-1-sign-ups' },
-  { id: '777000000000000007', name: 'timeout-test' }
+  { id: '777000000000000007', name: 'timeout-test' },
+  // Listed, but the bot / the caller lost access after the list was loaded: posting there is refused (see mock/f1Mock.ts).
+  { id: '777000000000000008', name: 'bot-locked' },
+  { id: '777000000000000009', name: 'staff-only-hidden' }
 ]
 const CH_SIGNUPS = '777000000000000005'
 const CH_TIER1 = '777000000000000006'
 const TIMEOUT_CHANNEL = '777000000000000007'
+const LOCKED_CHANNEL = '777000000000000008' // the bot cannot post here: 403 bot_cannot_send
+const HIDDEN_CHANNEL = '777000000000000009' // the caller cannot see it: 403 forbidden
 
 // ── Roles ───────────────────────────────────────────────────────────────────
 
@@ -267,13 +275,15 @@ export function installMockBridge(): void {
   let nextMessage = 888000000000000200n
 
   // The F1 league mock (calendar, teams, standings ...) and its share of the fake settings file.
-  const f1 = createF1Mock({
+  const mockContext: F1MockContext = {
     scenario,
     isAdmin,
     api,
     known: (guildId) => GUILDS.some((guild) => guild.id === guildId),
     channels: CHANNELS,
     timeoutChannel: TIMEOUT_CHANNEL,
+    lockedChannel: LOCKED_CHANNEL,
+    hiddenChannel: HIDDEN_CHANNEL,
     getSettings: () => settings,
     setSettings: (next) => {
       settings = next
@@ -282,7 +292,9 @@ export function installMockBridge(): void {
     newMessageId: () => String(nextMessage++),
     apex: APEX,
     midnight: MIDNIGHT
-  })
+  }
+  const f1 = createF1Mock(mockContext)
+  const steward = createStewardMock(mockContext)
   settings = f1.seedSettings(settings)
 
   let authState: AuthState =
@@ -361,6 +373,7 @@ export function installMockBridge(): void {
     const s = serverSettings[guildId]
     const roleIds = [...new Set(tiers.map((item) => item.roleId))]
     const f1Counts = f1.counts(guildId)
+    const stewardCounts = steward.counts(guildId)
     const counts = {
       games: games.length,
       activeGames: games.filter((game) => game.active).length,
@@ -371,8 +384,8 @@ export function installMockBridge(): void {
       teamDrivers: f1Counts?.teamDrivers ?? extra.teamDrivers,
       calendarRounds: f1Counts?.rounds ?? extra.rounds,
       openSignups: extra.openSignups,
-      reports: extra.reports,
-      pendingReports: extra.pending
+      reports: stewardCounts?.reports ?? extra.reports,
+      pendingReports: stewardCounts?.pending ?? extra.pending
     }
     const item = (key: string, label: string, done: boolean, detail: string | null = null): ChecklistItem => ({ key, label, done, detail })
     const checklist: ChecklistItem[] = [
@@ -384,7 +397,7 @@ export function installMockBridge(): void {
       item('calendar', 'Season calendar created', counts.calendarRounds > 0),
       item('teams', 'At least one team created', counts.teams > 0),
       item('points', 'Custom points system configured', extra.points),
-      item('penalties', 'Penalty points configured', extra.penalties)
+      item('penalties', 'Penalty points configured', stewardCounts?.penaltiesConfigured ?? extra.penalties)
     ]
     return {
       memberCount: guildId === APEX ? 120 : guildId === MIDNIGHT ? 2400 : 40,
@@ -440,7 +453,8 @@ export function installMockBridge(): void {
       postAnnouncement: (_guildId, input) =>
         api<AnnouncementResult>(() => {
           // Hooks for reviewing error states: put one of these words in the title.
-          if (/\bfail\b/i.test(input.title)) return failure('http', 'bot_cannot_send', 'The bot cannot post in that channel.', 403)
+          if (/\bfail\b/i.test(input.title) || input.channelId === LOCKED_CHANNEL) return failure('http', 'bot_cannot_send', 'The bot cannot post in that channel.', 403)
+          if (input.channelId === HIDDEN_CHANNEL) return failure('http', 'forbidden', 'You cannot see that channel.', 403)
           if (/\btimeout\b/i.test(input.title)) return timeoutFailure()
           return { ok: true, data: { messageId: '888000000000000001', channelId: input.channelId } }
         }),
@@ -565,6 +579,7 @@ export function installMockBridge(): void {
         }),
 
       ...f1.api,
+      ...steward.api,
 
       getStatus: async () => currentStatus,
       onStatusChange: (callback): Unsubscribe => {
@@ -586,9 +601,20 @@ export function installMockBridge(): void {
     },
 
     system: {
+      // Like the real main process: only https links on the allowlist (here: discord.com and the project's pages) are opened.
       openExternal: async (url) => {
-        console.info(`[${MOCK_MARKER}] would open in the system browser: ${url}`)
-        return true
+        const allowed = /^https:\/\/(discord\.com|nexus-b67\.pages\.dev)(\/|$)/i.test(url)
+        console.info(`[${MOCK_MARKER}] ${allowed ? 'would open in the system browser' : 'refused (not on the allowlist)'}: ${url}`)
+        return allowed
+      },
+      copyText: async (text) => {
+        console.info(`[${MOCK_MARKER}] copied ${text.length} characters to the clipboard`)
+        try {
+          await navigator.clipboard.writeText(text)
+        } catch {
+          // A browser without clipboard access: the mock still reports success so the UI can be reviewed.
+        }
+        return text.length > 0 && text.length <= 4000
       }
     }
   }

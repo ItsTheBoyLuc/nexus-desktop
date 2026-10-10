@@ -40,11 +40,30 @@ export const IPC = {
   apiResultsRecord: 'api:f1-results-record',
   apiPointsSystemGet: 'api:f1-points-get',
   apiPointsSystemPut: 'api:f1-points-put',
+  apiResultsLedger: 'api:f1-results-ledger',
+  apiReports: 'api:f1-reports',
+  apiReportRounds: 'api:f1-report-rounds',
+  apiReportRound: 'api:f1-report-round',
+  apiReport: 'api:f1-report',
+  apiReportDecide: 'api:f1-report-decide',
+  apiPenaltySettingsGet: 'api:f1-penalty-settings-get',
+  apiPenaltySettingsPut: 'api:f1-penalty-settings-put',
+  apiPenaltyOverview: 'api:f1-penalty-overview',
+  apiPenaltyHistory: 'api:f1-penalty-history',
+  apiPenaltyPoints: 'api:f1-penalty-points',
+  apiPenaltyClear: 'api:f1-penalty-clear',
+  apiPenaltyBan: 'api:f1-penalty-ban',
+  apiPenaltyAdvance: 'api:f1-penalty-advance',
+  apiDirtyList: 'api:f1-dirty-list',
+  apiDirtyHistory: 'api:f1-dirty-history',
+  apiDirtyAdd: 'api:f1-dirty-add',
+  apiDirtyRemove: 'api:f1-dirty-remove',
   apiGetStatus: 'api:get-status',
   apiStatusChanged: 'api:status-changed',
 
   settingsGet: 'settings:get',
   settingsSet: 'settings:set',
 
-  openExternal: 'system:open-external'
+  openExternal: 'system:open-external',
+  copyText: 'system:copy-text'
 } as const

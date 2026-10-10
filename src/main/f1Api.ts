@@ -19,6 +19,7 @@ import type {
   RoundInput,
   RoundPatch,
   RoundResult,
+  ServerLedgerEntry,
   Standings,
   StandingsDriver,
   StandingsTeam,
@@ -52,6 +53,8 @@ export interface F1Api {
 
   standings: (guildId: string) => Promise<Standings>
   recordResults: (guildId: string, input: ResultsInput) => Promise<RaceOutcome>
+  /** The races recorded through the app, newest first (the server's duplicate ledger). */
+  resultsLedger: (guildId: string, query?: { season?: string; round?: string }) => Promise<ServerLedgerEntry[]>
   pointsSystem: (guildId: string) => Promise<PointsSystem>
   savePointsSystem: (guildId: string, input: PointsSystemInput) => Promise<PointsSystem>
 }
@@ -149,10 +152,18 @@ function parseStandings(json: unknown): Standings {
   return { drivers, constructors }
 }
 
+/** points (20 whole numbers), pole and fastest lap: the shape of the system and of its built-in defaults. */
+function parsePointsTable(json: unknown): PointsSystemInput | null {
+  if (!isRecord(json) || !Array.isArray(json['points']) || json['points'].length !== 20 || !json['points'].every(isCount)) return null
+  if (!isCount(json['pole']) || !isCount(json['fastest_lap'])) return null
+  return { points: json['points'] as number[], pole: json['pole'], fastestLap: json['fastest_lap'] }
+}
+
 function parsePointsSystem(json: unknown): PointsSystem {
-  if (!isRecord(json) || !Array.isArray(json['points']) || json['points'].length !== 20 || !json['points'].every(isCount)) throw invalid('points system')
-  if (!isCount(json['pole']) || !isCount(json['fastest_lap'])) throw invalid('points system')
-  return { points: json['points'] as number[], pole: json['pole'], fastestLap: json['fastest_lap'], isDefault: json['is_default'] === true }
+  const table = parsePointsTable(json)
+  if (!table || !isRecord(json)) throw invalid('points system')
+  // `defaults` is always sent by the server; if it is missing or malformed the rest still works and "Reset to defaults" is off.
+  return { ...table, isDefault: json['is_default'] === true, defaults: parsePointsTable(json['defaults']) }
 }
 
 function parseMember(json: unknown): Member | null {
@@ -176,13 +187,43 @@ function parseNotFound(value: unknown): string[] {
   })
 }
 
+function parsePosted(value: unknown): RaceOutcome['posted'] {
+  if (!isRecord(value) || !isValidSnowflake(value['channel_id'])) return null
+  const ids = Array.isArray(value['message_ids']) ? value['message_ids'].filter(isValidSnowflake).slice(0, 10) : []
+  return { channelId: value['channel_id'], messageIds: ids }
+}
+
+function parseLedgerState(value: unknown): RaceOutcome['ledger'] {
+  if (!isRecord(value) || typeof value['recorded'] !== 'boolean') return null
+  return { recorded: value['recorded'], duplicate: value['duplicate'] === true }
+}
+
+function parseLedgerEntry(json: unknown): ServerLedgerEntry | null {
+  if (!isRecord(json) || typeof json['season'] !== 'string' || typeof json['round'] !== 'string' || typeof json['timestamp'] !== 'string') return null
+  return {
+    season: json['season'].slice(0, 40),
+    round: json['round'].slice(0, 40),
+    circuit: str(json['circuit'], 120),
+    recordedBy: str(json['recorded_by'], 100),
+    timestamp: json['timestamp'].slice(0, 40)
+  }
+}
+
 function parseRaceOutcome(json: unknown): RaceOutcome {
   if (!isRecord(json) || typeof json['race_title'] !== 'string' || !Array.isArray(json['results'])) throw invalid('race result')
   const results = json['results'].map((row): ResultLine => {
     if (!isRecord(row) || !isInt(row['position']) || !isInt(row['points']) || typeof row['matched'] !== 'boolean') throw invalid('race result')
     return { position: row['position'], name: str(row['name'], 100), points: row['points'], matched: row['matched'] }
   })
-  return { raceTitle: json['race_title'].slice(0, 200), results, notFound: parseNotFound(json['not_found']), standings: parseStandings(json['standings']) }
+  return {
+    raceTitle: json['race_title'].slice(0, 200),
+    results,
+    notFound: parseNotFound(json['not_found']),
+    standings: parseStandings(json['standings']),
+    posted: parsePosted(json['posted']),
+    announceError: typeof json['announce_error'] === 'string' && json['announce_error'] !== '' ? json['announce_error'].slice(0, 64) : null,
+    ledger: parseLedgerState(json['ledger'])
+  }
 }
 
 export function createF1Api(client: ApiClient): F1Api {
@@ -333,8 +374,27 @@ export function createF1Api(client: ApiClient): F1Api {
       }
       if (input.fastestLap !== undefined) body['fastest_lap'] = { user_id: userId(input.fastestLap) }
       if (input.pole !== undefined) body['pole'] = { user_id: userId(input.pole) }
+      if (input.channelId !== undefined) {
+        if (!isValidSnowflake(input.channelId)) throw clientError('invalid_channel', 'That channel is not valid.')
+        body['channel_id'] = input.channelId
+      }
+      // Only ever sent as true, and only after the user confirmed the "adds the points a second time" warning.
+      if (input.confirmDuplicate === true) body['confirm_duplicate'] = true
       // One attempt, never replayed (see ApiClient): a lost answer may still have recorded the race.
       return parseRaceOutcome(await client.request({ method: 'POST', path: guildPath(guildId, 'f1/standings/results'), body }))
+    },
+
+    async resultsLedger(guildId, query = {}) {
+      const params = new URLSearchParams()
+      if (query.season !== undefined) params.set('season', query.season)
+      if (query.round !== undefined) params.set('round', query.round)
+      const queryText = params.toString()
+      const suffix = queryText !== '' ? `?${queryText}` : ''
+      const json = await client.request({ path: `${guildPath(guildId, 'f1/standings/results-ledger')}${suffix}` })
+      return list(json, 'entries', 'results ledger').flatMap((item): ServerLedgerEntry[] => {
+        const entry = parseLedgerEntry(item)
+        return entry ? [entry] : []
+      })
     },
 
     async pointsSystem(guildId) {

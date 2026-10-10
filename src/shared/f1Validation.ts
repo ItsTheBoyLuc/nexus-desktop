@@ -277,8 +277,10 @@ export interface ResultsDraft {
   /** User id, or "" for none. Must be one of `drivers`. */
   fastestLap: string
   pole: string
+  /** Optional channel to post the results in; "" or absent = do not post. */
+  channelId?: string
 }
-export type ResultsField = 'season' | 'round' | 'circuit' | 'positions' | 'fastestLap' | 'pole'
+export type ResultsField = 'season' | 'round' | 'circuit' | 'positions' | 'fastestLap' | 'pole' | 'channelId'
 
 export function validateResultsDraft(draft: ResultsDraft): FormResult<ResultsInput, ResultsField> {
   const errors: Partial<Record<ResultsField, string>> = {}
@@ -302,6 +304,8 @@ export function validateResultsDraft(draft: ResultsDraft): FormResult<ResultsInp
   const inRace = new Set(chosen)
   if (draft.fastestLap !== '' && !inRace.has(draft.fastestLap)) errors.fastestLap = 'The fastest lap must belong to a driver in the results.'
   if (draft.pole !== '' && !inRace.has(draft.pole)) errors.pole = 'The pole position must belong to a driver in the results.'
+  const channelId = draft.channelId ?? ''
+  if (channelId !== '' && !isValidSnowflake(channelId)) errors.channelId = 'Choose a channel from the list, or choose no channel.'
 
   if (Object.keys(errors).length > 0) return { ok: false, errors }
   return {
@@ -312,7 +316,8 @@ export function validateResultsDraft(draft: ResultsDraft): FormResult<ResultsInp
       circuit,
       results: [...chosen],
       ...(draft.fastestLap !== '' ? { fastestLap: draft.fastestLap } : {}),
-      ...(draft.pole !== '' ? { pole: draft.pole } : {})
+      ...(draft.pole !== '' ? { pole: draft.pole } : {}),
+      ...(channelId !== '' ? { channelId } : {})
     }
   }
 }

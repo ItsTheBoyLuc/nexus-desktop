@@ -66,7 +66,27 @@ export function describeError(error: unknown): string {
     case 'not_a_bot_message':
       return 'That message was not posted by Nexus, so it cannot be refreshed.'
     case 'fia_required':
-      return 'Only members with the FIA role, or server administrators, can record race results or change the points system. Your account has the staff role only.'
+      return 'Only members with the FIA role, or server administrators, can do this (record race results, change the points system, clear points, give or remove bans, advance the race). Your account has the staff role only.'
+    case 'already_decided':
+      return 'This report was already decided, possibly in Discord. Nothing was applied a second time.'
+    case 'penalty_not_configured':
+      return 'The penalty rules have not been set up yet, so nothing was changed. An Administrator has to save the Penalty settings first.'
+    case 'report_message_not_found':
+      return "Nexus cannot find this report's message or thread in Discord, so the decision was refused and nothing was changed."
+    case 'report_embed_missing':
+      return 'The report message in Discord no longer has its report embed, so the decision was refused and nothing was changed.'
+    case 'report_not_found':
+      return 'That report no longer exists. It may have been removed. Refresh to see the current list.'
+    case 'penalty_points_failed':
+      return 'The report was decided, but the penalty points could not be saved.'
+    case 'confirm_required':
+      return 'This action has to be confirmed first. Nothing was changed.'
+    case 'nothing_to_do':
+      return '0 points record nothing. Enter at least 1 point, or choose a channel to only post the Stewards Decision.'
+    case 'results_already_recorded':
+      return 'The server already has a race recorded for this season and round. Recording it again adds its points a second time.'
+    case 'invalid_channel':
+      return 'That channel is not valid. Pick a channel from the list.'
     case 'ambiguous_name':
       return 'That name matches more than one driver in the results. Choose the driver from the list instead.'
     case 'team_exists':
@@ -132,6 +152,52 @@ export function outcomeUnknown(error: unknown): boolean {
   if (mayHaveSucceeded(error)) return true
   const { kind, code, status } = error.info
   return kind === 'http' && status !== undefined && status >= 500 && code !== 'bot_unavailable'
+}
+
+/** Backend codes that mean "the chosen channel cannot be used"; the server checks them before it changes anything. */
+export const CHANNEL_ERROR_CODES = ['invalid_channel', 'channel_not_found', 'bot_cannot_send', 'forbidden'] as const
+
+export function isChannelError(error: unknown): boolean {
+  const code = errorCode(error)
+  return code !== null && (CHANNEL_ERROR_CODES as readonly string[]).includes(code)
+}
+
+/**
+ * The same four codes, but worded for a channel picker: a plain `forbidden` normally means "you are not staff",
+ * here it means "you cannot see that channel". Names what is wrong and says nothing was recorded or posted.
+ */
+export function describeChannelError(error: unknown, channelName: string, effect = 'Nothing was changed.'): string {
+  const where = channelName === '' ? 'that channel' : `#${channelName}`
+  switch (errorCode(error)) {
+    case 'invalid_channel':
+      return `${where} is not a valid channel. Pick a channel from the list. ${effect}`
+    case 'channel_not_found':
+      return `${where} no longer exists in this server. Refresh the channel list and pick another one. ${effect}`
+    case 'bot_cannot_send':
+      return `Nexus cannot post in ${where}: it needs View Channel, Send Messages and Embed Links there. Fix the bot's permissions in Discord or pick another channel. ${effect}`
+    case 'forbidden':
+      return `Your account cannot see ${where} in Discord, so Nexus will not post there. Pick a channel you can see. ${effect}`
+    default:
+      return describeError(error)
+  }
+}
+
+/** The `announce_error` of a write that succeeded but could not post its embed: the data is saved, only the post failed. */
+export function describeAnnounceCode(code: string): string {
+  switch (code) {
+    case 'bot_cannot_send':
+      return "Nexus is not allowed to post in that channel (it needs View Channel, Send Messages and Embed Links)."
+    case 'channel_not_found':
+      return 'The channel no longer exists.'
+    case 'discord_error':
+      return 'Discord rejected the message.'
+    case 'bot_timeout':
+      return 'Discord did not answer in time, so the post may or may not have appeared.'
+    case 'forbidden':
+      return 'Your account cannot see that channel.'
+    default:
+      return `The post failed (${code.slice(0, 40)}).`
+  }
 }
 
 /** An error that belongs to one form field: the code is looked up in `map` (backend code -> field). */

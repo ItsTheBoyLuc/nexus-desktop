@@ -19,10 +19,27 @@ import {
 } from '../shared/inputs'
 import type { Parsed } from '../shared/inputs'
 import { IPC } from '../shared/ipc'
+import {
+  parseAdvanceInput,
+  parseBanInput,
+  parseClearInput,
+  parseDecisionInput,
+  parseDirtyReportInput,
+  parseDriverName,
+  parseLedgerQuery,
+  parseManualPointsInput,
+  parseOptionalSeason,
+  parsePenaltySettingsInput,
+  parseReportFiltersInput,
+  parseReportId,
+  parseReportIndex,
+  parseReportOverviewQuery
+} from '../shared/penaltyInputs'
 import type { ApiErrorInfo, ApiStatus, IpcResult } from '../shared/types'
 import { isValidKey, isValidSnowflake, validateAnnouncement } from '../shared/validation'
 import { ApiError } from './apiClient'
 import type { AuthService } from './auth'
+import { copyTextChecked } from './clipboard'
 import { openExternalChecked } from './external'
 import { log } from './log'
 import type { NexusApi } from './nexusApi'
@@ -191,10 +208,45 @@ export function registerIpc(deps: IpcDeps): void {
     withGuild(guildId, (id) => deps.api.savePointsSystem(id, valid(parsePointsSystemInput(input))))
   )
 
+  handle(IPC.apiResultsLedger, (guildId, query) => withGuild(guildId, (id) => deps.api.resultsLedger(id, valid(parseLedgerQuery(query)))))
+
+  // Reports, penalties and dirty drivers (milestone 3). Same rule: re-checked here, and every write goes out once.
+  handle(IPC.apiReports, (guildId, filters) => withGuild(guildId, (id) => deps.api.reports(id, valid(parseReportFiltersInput(filters)))))
+  handle(IPC.apiReportRounds, (guildId) => withGuild(guildId, (id) => deps.api.reportRounds(id)))
+  handle(IPC.apiReportRound, (guildId, season, round) =>
+    withGuild(guildId, (id) => {
+      const query = valid(parseReportOverviewQuery({ season, round }))
+      return query ? deps.api.reportRound(id, query.season, query.round) : rejectInput('Give both the season and the round.')
+    })
+  )
+  handle(IPC.apiReport, (guildId, reportId) => withGuild(guildId, (id) => deps.api.report(id, valid(parseReportId(reportId)))))
+  handle(IPC.apiReportDecide, (guildId, reportId, input) =>
+    withGuild(guildId, (id) => deps.api.decideReport(id, valid(parseReportId(reportId)), valid(parseDecisionInput(input))))
+  )
+
+  handle(IPC.apiPenaltySettingsGet, (guildId) => withGuild(guildId, (id) => deps.api.penaltySettings(id)))
+  handle(IPC.apiPenaltySettingsPut, (guildId, input) => withGuild(guildId, (id) => deps.api.savePenaltySettings(id, valid(parsePenaltySettingsInput(input)))))
+  handle(IPC.apiPenaltyOverview, (guildId, season) => withGuild(guildId, (id) => deps.api.penaltyOverview(id, valid(parseOptionalSeason(season)))))
+  handle(IPC.apiPenaltyHistory, (guildId, driver, season) =>
+    withGuild(guildId, (id) => deps.api.penaltyHistory(id, valid(parseDriverName(driver)), valid(parseOptionalSeason(season))))
+  )
+  handle(IPC.apiPenaltyPoints, (guildId, input) => withGuild(guildId, (id) => deps.api.addPenaltyPoints(id, valid(parseManualPointsInput(input)))))
+  handle(IPC.apiPenaltyClear, (guildId, input) => withGuild(guildId, (id) => deps.api.clearPenaltyPoints(id, valid(parseClearInput(input)))))
+  handle(IPC.apiPenaltyBan, (guildId, input) => withGuild(guildId, (id) => deps.api.setBan(id, valid(parseBanInput(input)))))
+  handle(IPC.apiPenaltyAdvance, (guildId, input) => withGuild(guildId, (id) => deps.api.advanceRace(id, valid(parseAdvanceInput(input)))))
+
+  handle(IPC.apiDirtyList, (guildId) => withGuild(guildId, (id) => deps.api.dirtyDrivers(id)))
+  handle(IPC.apiDirtyHistory, (guildId, driver) => withGuild(guildId, (id) => deps.api.dirtyHistory(id, valid(parseDriverName(driver)))))
+  handle(IPC.apiDirtyAdd, (guildId, input) => withGuild(guildId, (id) => deps.api.addDirtyReport(id, valid(parseDirtyReportInput(input)))))
+  handle(IPC.apiDirtyRemove, (guildId, driver, index) =>
+    withGuild(guildId, (id) => deps.api.removeDirtyReport(id, valid(parseDriverName(driver)), valid(parseReportIndex(index))))
+  )
+
   handle(IPC.apiGetStatus, () => deps.getApiStatus())
 
   handle(IPC.settingsGet, () => deps.settings.get())
   handle(IPC.settingsSet, (patch) => deps.settings.set(patch))
 
   handle(IPC.openExternal, (url) => openExternalChecked(url))
+  handle(IPC.copyText, (text) => copyTextChecked(text))
 }

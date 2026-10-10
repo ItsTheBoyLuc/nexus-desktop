@@ -6,14 +6,17 @@ import type { ResultsField } from '../../shared/f1Validation'
 import type { RaceOutcome } from '../../shared/types'
 import { Badge, Button, Card, MemberPicker, Modal, Notice, SearchSelect, TextField, useToast } from '../components'
 import type { Person, SearchOption } from '../components'
+import { useGuildChannels } from '../hooks/data'
 import { useSettings } from '../hooks/settings'
 import { useWriteAction } from '../hooks/useWriteAction'
-import { describeError, errorCode, fieldErrorFor, outcomeUnknown, unwrap, UiError, writeProblem } from '../lib/errors'
+import { describeAnnounceCode, describeChannelError, describeError, errorCode, fieldErrorFor, isChannelError, UiError, writeProblem } from '../lib/errors'
 import type { WriteProblem } from '../lib/errors'
 import { plural } from '../lib/format'
 import { invalidateStandings } from '../lib/invalidation'
-import { ambiguousFields, moveItem, planResultsSubmit } from '../lib/resultsFlow'
+import { ambiguousFields, moveItem } from '../lib/resultsFlow'
 import type { Candidate } from '../lib/resultsFlow'
+import { outcomeNotes, planAfterConflict, planDuplicate, readLedger, sendResults } from '../lib/resultsGuard'
+import type { DuplicatePlan } from '../lib/resultsGuard'
 
 interface ResultsFormProps {
   guildId: string
@@ -46,10 +49,12 @@ const FIELD_OF_CODE = {
 } as const satisfies Record<string, ResultsField>
 
 const START_ROWS = 3
+const NO_CHANNEL = ''
 
 export function ResultsForm({ guildId, defaultSeason, known, denied, onDenied, onCheckAgain, onLeave }: ResultsFormProps) {
   const toast = useToast()
   const write = useWriteAction()
+  const channels = useGuildChannels(guildId)
   const { settings, reload: reloadSettings } = useSettings()
   const nextKey = useRef(START_ROWS)
 
@@ -60,23 +65,30 @@ export function ResultsForm({ guildId, defaultSeason, known, denied, onDenied, o
   const [people, setPeople] = useState<Map<string, Person>>(() => new Map())
   const [fastestLap, setFastestLap] = useState('')
   const [pole, setPole] = useState('')
+  const [channelId, setChannelId] = useState(NO_CHANNEL)
   const [submitted, setSubmitted] = useState(false)
   const [serverErrors, setServerErrors] = useState<Partial<Record<ResultsField, string>>>({})
+  /** The dialog is open; `plan` says whether it is the plain confirmation or the "recorded before" warning. */
   const [confirming, setConfirming] = useState(false)
+  const [plan, setPlan] = useState<DuplicatePlan | null>(null)
   const [problem, setProblem] = useState<WriteProblem | null>(null)
   const [lost, setLost] = useState(false)
   const [outcome, setOutcome] = useState<RaceOutcome | null>(null)
 
   const drivers = rows.map((row) => row.userId)
-  const result = validateResultsDraft({ season, round, circuit, drivers, fastestLap, pole })
+  const result = validateResultsDraft({ season, round, circuit, drivers, fastestLap, pole, channelId })
   const errors: Partial<Record<ResultsField, string>> = result.ok ? {} : result.errors
   const show = (field: ResultsField): string | null => serverErrors[field] ?? (submitted ? (errors[field] ?? null) : null)
-  const plan = planResultsSubmit(settings.ledger, guildId, season, round)
 
   const nameOf = (userId: string): string => people.get(userId)?.displayName ?? known.find((person) => person.id === userId)?.displayName ?? userId
+  const channelName = (id: string): string => (channels.status === 'ready' ? (channels.data.find((channel) => channel.id === id)?.name ?? '') : '')
   const chosenOptions: SearchOption[] = [
     { value: '', label: 'None' },
     ...rows.flatMap((row, index) => (row.userId !== '' ? [{ value: row.userId, label: nameOf(row.userId), description: `Finished P${index + 1}` }] : []))
+  ]
+  const channelOptions: SearchOption[] = [
+    { value: NO_CHANNEL, label: 'No channel: do not post' },
+    ...(channels.status === 'ready' ? channels.data.map((channel) => ({ value: channel.id, label: `# ${channel.name}` })) : [])
   ]
 
   const clearServer = (): void => {
@@ -106,37 +118,73 @@ export function ResultsForm({ guildId, defaultSeason, known, denied, onDenied, o
   }
   const taken = (own: string): Map<string, string> => new Map(rows.flatMap((row, index) => (row.userId !== '' && row.userId !== own ? [[row.userId, `Already at P${index + 1}`] as [string, string]] : [])))
 
-  const review = (event: FormEvent): void => {
+  /** "Review and record": first the server's ledger is read, so the warning (if any) comes before the confirm dialog. */
+  const review = async (event: FormEvent): Promise<void> => {
     event.preventDefault()
     setSubmitted(true)
     clearServer()
     if (!result.ok || denied) return
-    setConfirming(true)
+    const read = await write.run(() => readLedger(window.nexus.api, guildId, season, round))
+    if (!read) return
+    if (read.ok) {
+      setPlan(planDuplicate(read.value, settings.ledger, guildId, season, round))
+      setConfirming(true)
+    }
   }
 
   const record = async (): Promise<void> => {
-    if (!result.ok) return
-    const outcomeOfWrite = await write.run(() => unwrap(window.nexus.api.recordResults(guildId, result.value)))
-    if (!outcomeOfWrite) return
-    setConfirming(false)
-    if (outcomeOfWrite.ok) {
-      await reloadSettings() // the main process just wrote the ledger entry
-      invalidateStandings(guildId)
-      setOutcome(outcomeOfWrite.value)
-      toast.push({ tone: 'success', title: 'Results recorded', message: outcomeOfWrite.value.raceTitle })
+    if (!result.ok || !plan) return
+    // The warning dialog's confirm button is the only place that sets this: the plain dialog never does.
+    const confirmedDuplicate = plan.repeat
+    const sent = await write.run(async () => {
+      const answer = await sendResults(window.nexus.api, guildId, result.value, confirmedDuplicate)
+      // 409: nothing was recorded. Read the ledger again (inside the same guarded step) to show what the server has.
+      const read = answer.kind === 'duplicate' ? await readLedger(window.nexus.api, guildId, season, round) : null
+      return { answer, read }
+    })
+    if (!sent) return
+    if (!sent.ok) {
+      setConfirming(false)
+      setProblem(writeProblem(sent.error, 'Recording the results'))
       return
     }
-    const error = outcomeOfWrite.error
-    if (outcomeUnknown(error)) {
-      // The race may already be recorded: the data is never offered for sending again.
-      setLost(true)
-      return
+    const { answer, read } = sent.value
+    switch (answer.kind) {
+      case 'recorded':
+        setConfirming(false)
+        await reloadSettings() // the main process just wrote the local ledger entry
+        invalidateStandings(guildId)
+        setOutcome(answer.outcome)
+        toast.push({ tone: 'success', title: 'Results recorded', message: answer.outcome.raceTitle })
+        return
+      case 'duplicate':
+        // The server says this season and round was recorded already: nothing was changed. Show the warning and ask again.
+        setPlan(planAfterConflict(read ?? { ok: false }, settings.ledger, guildId, season, round))
+        return
+      case 'lost':
+        // The race may already be recorded: the data is never offered for sending again.
+        setConfirming(false)
+        setLost(true)
+        return
+      case 'refused':
+        setConfirming(false)
+        handleRefusal(answer.error)
+        return
     }
-    if (errorCode(error) === 'fia_required') {
+  }
+
+  const handleRefusal = (error: unknown): void => {
+    const code = errorCode(error)
+    if (code === 'fia_required') {
       onDenied()
       return
     }
-    if (errorCode(error) === 'ambiguous_name') {
+    if (channelId !== NO_CHANNEL && isChannelError(error)) {
+      // Checked by the server before anything is recorded: nothing was recorded or posted.
+      setServerErrors({ channelId: describeChannelError(error, channelName(channelId), 'Nothing was recorded or posted.') })
+      return
+    }
+    if (code === 'ambiguous_name') {
       const message = error instanceof UiError ? error.info.message : ''
       const text = describeError(error)
       setServerErrors(Object.fromEntries(ambiguousFields(message, fastestLap !== '', pole !== '').map((field) => [field, text])))
@@ -155,11 +203,13 @@ export function ResultsForm({ guildId, defaultSeason, known, denied, onDenied, o
     setPole('')
     setRound('')
     setCircuit('')
+    setPlan(null)
     setSubmitted(false)
   }
 
   // ── After the answer ──
   if (outcome) {
+    const notes = outcomeNotes(outcome)
     return (
       <Card className="stack">
         <div className="success-heading">
@@ -172,6 +222,17 @@ export function ResultsForm({ guildId, defaultSeason, known, denied, onDenied, o
         {outcome.notFound.length > 0 ? (
           <Notice tone="warning">
             The server could not match {plural(outcome.notFound.length, 'driver')} and gave {outcome.notFound.length === 1 ? 'them' : 'these drivers'} no points: {outcome.notFound.join(', ')}. The other drivers were recorded.
+          </Notice>
+        ) : null}
+        {notes.posted && outcome.posted ? <Notice tone="success">Posted the results, driver standings and team standings in #{channelName(outcome.posted.channelId) || 'the chosen channel'}.</Notice> : null}
+        {notes.announceError ? (
+          <Notice tone="warning">
+            The points are recorded, but posting them in {channelId !== NO_CHANNEL && channelName(channelId) ? `#${channelName(channelId)}` : 'the channel'} failed: {describeAnnounceCode(notes.announceError)} Nothing is lost; post the standings by hand if you still want them in that channel.
+          </Notice>
+        ) : null}
+        {notes.ledgerMissing ? (
+          <Notice tone="warning">
+            The points were applied, but the server could not write this race into its results ledger, so the duplicate warning will not know about it. Do not record this race again.
           </Notice>
         ) : null}
         <div className="table-wrap">
@@ -225,10 +286,12 @@ export function ResultsForm({ guildId, defaultSeason, known, denied, onDenied, o
     )
   }
 
+  const repeat = plan?.repeat === true
   return (
-    <form className="stack" onSubmit={review} noValidate aria-label="Enter race results">
+    <form className="stack" onSubmit={(event) => void review(event)} noValidate aria-label="Enter race results">
       <Notice tone="info">
-        Recording a race <strong>adds</strong> its points to the standings, and the same race recorded twice is added twice. This app only knows about races recorded here: results entered through Discord commands or on another device are unknown to it.
+        Recording a race <strong>adds</strong> its points to the standings. The server keeps a ledger of the races recorded <strong>through this app</strong> and warns before the same season and round is recorded again. Results recorded through Discord commands
+        (<code>/f1 standings</code>) are <strong>not in that ledger</strong>, so recording a race you already entered in Discord adds its points twice, without any warning.
       </Notice>
 
       {denied ? (
@@ -244,7 +307,7 @@ export function ResultsForm({ guildId, defaultSeason, known, denied, onDenied, o
           <TextField label="Round" value={round} maxLength={RESULT_LIMITS.roundMax} readOnly={denied} placeholder="3" error={show('round')} autoComplete="off" onChange={(event) => { setRound(event.target.value); clearServer() }} />
           <TextField label="Circuit" value={circuit} maxLength={RESULT_LIMITS.circuitMax} readOnly={denied} placeholder="Zandvoort" error={show('circuit')} autoComplete="off" onChange={(event) => { setCircuit(event.target.value); clearServer() }} />
         </div>
-        <p className="muted">These three only form the title, for example Season 5 Round 3 - Zandvoort. The round is free text, not a calendar round.</p>
+        <p className="muted">These three only form the title, for example Season 5 Round 3 - Zandvoort. The round is free text, not a calendar round. The server compares season and round as text (ignoring case and spaces) to spot a repeat.</p>
       </Card>
 
       <Card className="stack">
@@ -300,20 +363,49 @@ export function ResultsForm({ guildId, defaultSeason, known, denied, onDenied, o
         </div>
       </Card>
 
+      <Card className="stack">
+        <h2 className="section-title">Post results to a channel</h2>
+        <SearchSelect
+          label="Channel (optional)"
+          value={channelId}
+          options={channelOptions}
+          placeholder="No channel: do not post"
+          disabled={denied || channels.status !== 'ready'}
+          hint={
+            channels.status === 'error'
+              ? 'The channels could not be loaded. You can still record the race without posting it.'
+              : 'Optional. Posts the results, the driver standings and the team standings as embeds. The default is not to post anything.'
+          }
+          error={show('channelId')}
+          emptyText="No channel found. Nexus can only post where it has permission."
+          onChange={(value) => { setChannelId(value); clearServer() }}
+        />
+        {channels.status === 'error' ? (
+          <div className="dialog-actions dialog-actions--start">
+            <Button variant="secondary" size="sm" icon={<RotateCw size={14} aria-hidden="true" />} onClick={channels.reload}>
+              Reload channels
+            </Button>
+          </div>
+        ) : null}
+        <p className="muted">The server checks the channel before it records anything. If only the post fails afterwards, the points stay recorded and you are told.</p>
+      </Card>
+
       {problem ? <Notice tone="danger">{problem.text}</Notice> : null}
 
       <div className="form-actions form-actions--split">
         <Button variant="ghost" disabled={write.busy} onClick={() => onLeave('back')}>
           Back to the standings
         </Button>
-        <Button type="submit" disabled={denied} loading={write.busy}>
+        <Button type="submit" disabled={denied} loading={write.busy && !confirming}>
           Review and record
         </Button>
       </div>
 
+      {/* Keyed by the warning state: when a 409 flips the dialog to the warning, it is rebuilt and Cancel gets the focus again. */}
       <Modal
+        key={repeat ? 'recorded-before' : 'plain'}
         open={confirming}
-        title={plan.repeat ? 'This round is already in your record' : 'Add these points to the standings?'}
+        title={repeat ? 'This round was recorded before' : 'Add these points to the standings?'}
         dismissible={!write.busy}
         onClose={() => setConfirming(false)}
         footer={
@@ -323,16 +415,26 @@ export function ResultsForm({ guildId, defaultSeason, known, denied, onDenied, o
               Cancel
             </Button>
             <Button loading={write.busy} onClick={() => void record()}>
-              {plan.repeat ? 'Record again and add the points a second time' : 'Record and add the points'}
+              {repeat ? 'Record again and add the points a second time' : 'Record and add the points'}
             </Button>
           </>
         }
       >
-        {plan.repeat ? (
+        {repeat && plan ? (
           <Notice tone="warning">
-            This app already recorded <strong>Season {season.trim()}, round {round.trim()}</strong> on this server ({plan.earlier.map((entry) => `${entry.circuit}, ${new Date(entry.recordedAt).toLocaleString()}`).join('; ')}). Recording it again{' '}
-            <strong>adds the points a second time</strong>; the server cannot detect or undo that.
+            {plan.earlier.length > 0 ? (
+              <>
+                {plan.source === 'server' ? 'The server' : 'This app'} already has <strong>Season {season.trim()}, round {round.trim()}</strong> recorded through the app:{' '}
+                {plan.earlier.map((entry) => `${entry.circuit}${entry.recordedBy ? ` by ${entry.recordedBy}` : ''}, ${new Date(entry.at).toLocaleString()}`).join('; ')}.{' '}
+              </>
+            ) : (
+              <>The server says <strong>Season {season.trim()}, round {round.trim()}</strong> was already recorded through the app. </>
+            )}
+            Recording it again <strong>adds the points a second time</strong>; the server cannot undo that.
           </Notice>
+        ) : null}
+        {plan?.source === 'local' ? (
+          <Notice tone="info">The server&apos;s results ledger could not be read, so this check only knows the races this app recorded on this computer. The server will still refuse a repeat it knows about, and you will be asked again.</Notice>
         ) : null}
         <p>
           The points for this race will be <strong>ADDED</strong> to the driver and team standings, together with wins and podiums. This cannot be undone from the app.
@@ -345,6 +447,7 @@ export function ResultsForm({ guildId, defaultSeason, known, denied, onDenied, o
             <li>{plural(result.value.results.length, 'driver')} in finishing order, from {nameOf(result.value.results[0] ?? '')} on P1</li>
             {result.value.fastestLap ? <li>Fastest lap: {nameOf(result.value.fastestLap)}</li> : null}
             {result.value.pole ? <li>Pole position: {nameOf(result.value.pole)}</li> : null}
+            <li>{result.value.channelId ? <>The results and both standings are posted in <strong>#{channelName(result.value.channelId) || 'the chosen channel'}</strong>.</> : 'Nothing is posted in Discord.'}</li>
           </ul>
         ) : null}
         <p className="muted">The server works out the points from the points system. Nothing is calculated in this app.</p>

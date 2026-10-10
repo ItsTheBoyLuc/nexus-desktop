@@ -59,6 +59,24 @@ const bridge: NexusBridge = {
     recordResults: (guildId, input) => ipcRenderer.invoke(IPC.apiResultsRecord, guildId, input),
     pointsSystem: (guildId) => ipcRenderer.invoke(IPC.apiPointsSystemGet, guildId),
     savePointsSystem: (guildId, input) => ipcRenderer.invoke(IPC.apiPointsSystemPut, guildId, input),
+    resultsLedger: (guildId, query) => ipcRenderer.invoke(IPC.apiResultsLedger, guildId, query),
+    reports: (guildId, filters) => ipcRenderer.invoke(IPC.apiReports, guildId, filters),
+    reportRounds: (guildId) => ipcRenderer.invoke(IPC.apiReportRounds, guildId),
+    reportRound: (guildId, season, round) => ipcRenderer.invoke(IPC.apiReportRound, guildId, season, round),
+    report: (guildId, reportId) => ipcRenderer.invoke(IPC.apiReport, guildId, reportId),
+    decideReport: (guildId, reportId, input) => ipcRenderer.invoke(IPC.apiReportDecide, guildId, reportId, input),
+    penaltySettings: (guildId) => ipcRenderer.invoke(IPC.apiPenaltySettingsGet, guildId),
+    savePenaltySettings: (guildId, input) => ipcRenderer.invoke(IPC.apiPenaltySettingsPut, guildId, input),
+    penaltyOverview: (guildId, season) => ipcRenderer.invoke(IPC.apiPenaltyOverview, guildId, season),
+    penaltyHistory: (guildId, driver, season) => ipcRenderer.invoke(IPC.apiPenaltyHistory, guildId, driver, season),
+    addPenaltyPoints: (guildId, input) => ipcRenderer.invoke(IPC.apiPenaltyPoints, guildId, input),
+    clearPenaltyPoints: (guildId, input) => ipcRenderer.invoke(IPC.apiPenaltyClear, guildId, input),
+    setBan: (guildId, input) => ipcRenderer.invoke(IPC.apiPenaltyBan, guildId, input),
+    advanceRace: (guildId, input) => ipcRenderer.invoke(IPC.apiPenaltyAdvance, guildId, input),
+    dirtyDrivers: (guildId) => ipcRenderer.invoke(IPC.apiDirtyList, guildId),
+    dirtyHistory: (guildId, driver) => ipcRenderer.invoke(IPC.apiDirtyHistory, guildId, driver),
+    addDirtyReport: (guildId, input) => ipcRenderer.invoke(IPC.apiDirtyAdd, guildId, input),
+    removeDirtyReport: (guildId, driver, index) => ipcRenderer.invoke(IPC.apiDirtyRemove, guildId, driver, index),
     getStatus: () => ipcRenderer.invoke(IPC.apiGetStatus),
     onStatusChange: (callback) => subscribe<ApiStatus>(IPC.apiStatusChanged, callback)
   },
@@ -67,7 +85,8 @@ const bridge: NexusBridge = {
     set: (patch) => ipcRenderer.invoke(IPC.settingsSet, patch)
   },
   system: {
-    openExternal: (url) => ipcRenderer.invoke(IPC.openExternal, url)
+    openExternal: (url) => ipcRenderer.invoke(IPC.openExternal, url),
+    copyText: (text) => ipcRenderer.invoke(IPC.copyText, text)
   }
 }
 

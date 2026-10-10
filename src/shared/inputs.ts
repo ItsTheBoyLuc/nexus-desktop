@@ -179,9 +179,14 @@ export function parseResultsInput(input: unknown): Parsed<ResultsInput> {
     circuit: text2(record['circuit']),
     drivers: results.map((id) => text2(id)),
     fastestLap: text2(record['fastestLap']),
-    pole: text2(record['pole'])
+    pole: text2(record['pole']),
+    channelId: text2(record['channelId'])
   })
-  return result.ok ? result : { ok: false, message: firstError(result.errors) }
+  if (!result.ok) return { ok: false, message: firstError(result.errors) }
+  // Only a literal true counts: the app sets it after the user confirmed the duplicate warning.
+  const confirmDuplicate = record['confirmDuplicate']
+  if (confirmDuplicate !== undefined && typeof confirmDuplicate !== 'boolean') return { ok: false, message: 'The duplicate confirmation is not valid.' }
+  return { ok: true, value: { ...result.value, ...(confirmDuplicate === true ? { confirmDuplicate: true } : {}) } }
 }
 
 export function parsePointsSystemInput(input: unknown): Parsed<PointsSystemInput> {

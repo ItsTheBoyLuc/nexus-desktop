@@ -1,4 +1,4 @@
-import { RotateCcw, Save } from 'lucide-react'
+import { ListRestart, RotateCcw, Save } from 'lucide-react'
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { draftOfPoints, pointsChanged, POINTS_LIMITS, validatePointsDraft } from '../../shared/f1Validation'
@@ -28,6 +28,8 @@ function PointsForm({ guildId, system, denied, onDenied, onCheckAgain }: EditorP
   const [submitted, setSubmitted] = useState(false)
   const [serverError, setServerError] = useState<{ field: PointsField; message: string } | null>(null)
   const [problem, setProblem] = useState<WriteProblem | null>(null)
+  /** The form was filled from the built-in defaults and nothing has been saved yet. */
+  const [resetNote, setResetNote] = useState(false)
 
   const result = validatePointsDraft(draft)
   const errors: Partial<Record<PointsField, string>> = result.ok ? {} : result.errors
@@ -40,6 +42,17 @@ function PointsForm({ guildId, system, denied, onDenied, onCheckAgain }: EditorP
     setDraft((current) => ({ ...current, points: current.points.map((entry, position) => (position === index ? value : entry)) }))
     setServerError(null)
     setProblem(null)
+    setResetNote(false)
+  }
+
+  /** Fills the form from the server's built-in table. Nothing is saved until the user presses Save. */
+  const resetToDefaults = (): void => {
+    if (!system.defaults) return
+    setDraft(draftOfPoints(system.defaults))
+    setSubmitted(false)
+    setServerError(null)
+    setProblem(null)
+    setResetNote(true)
   }
 
   const save = async (event: FormEvent): Promise<void> => {
@@ -108,6 +121,7 @@ function PointsForm({ guildId, system, denied, onDenied, onCheckAgain }: EditorP
             onChange={(event) => {
               setDraft((current) => ({ ...current, pole: event.target.value }))
               setServerError(null)
+              setResetNote(false)
             }}
           />
           <TextField
@@ -121,28 +135,51 @@ function PointsForm({ guildId, system, denied, onDenied, onCheckAgain }: EditorP
             onChange={(event) => {
               setDraft((current) => ({ ...current, fastestLap: event.target.value }))
               setServerError(null)
+              setResetNote(false)
             }}
           />
         </div>
         <p className="muted">All 20 positions are saved together. Enter 0 for a position that gives no points.</p>
       </Card>
 
+      {resetNote ? (
+        <Notice tone="info">
+          {dirty ? (
+            <>The form now shows the built-in default points system. <strong>Nothing is saved yet</strong>: press Save points system to use it, or Discard changes to go back to what is saved.</>
+          ) : (
+            <>The built-in defaults are the same as what is saved, so there is nothing to save.</>
+          )}
+        </Notice>
+      ) : null}
+
       <WriteProblemNotice problem={problem} onRefresh={() => invalidatePointsSystem(guildId)} refreshLabel="Refresh" />
 
       <div className="form-actions form-actions--split">
-        <Button
-          variant="ghost"
-          disabled={!dirty || write.busy}
-          icon={<RotateCcw size={16} aria-hidden="true" />}
-          onClick={() => {
-            setDraft(draftOfPoints(system))
-            setSubmitted(false)
-            setServerError(null)
-            setProblem(null)
-          }}
-        >
-          Discard changes
-        </Button>
+        <div className="header-actions">
+          <Button
+            variant="ghost"
+            disabled={!dirty || write.busy}
+            icon={<RotateCcw size={16} aria-hidden="true" />}
+            onClick={() => {
+              setDraft(draftOfPoints(system))
+              setSubmitted(false)
+              setServerError(null)
+              setProblem(null)
+              setResetNote(false)
+            }}
+          >
+            Discard changes
+          </Button>
+          <Button
+            variant="secondary"
+            disabled={denied || write.busy || !system.defaults}
+            title={system.defaults ? 'Fill the form with the built-in default points. Nothing is saved until you press Save.' : 'The server did not send its default points system.'}
+            icon={<ListRestart size={16} aria-hidden="true" />}
+            onClick={resetToDefaults}
+          >
+            Reset to defaults
+          </Button>
+        </div>
         <Button type="submit" loading={write.busy} disabled={denied || !dirty} icon={<Save size={16} aria-hidden="true" />}>
           Save points system
         </Button>

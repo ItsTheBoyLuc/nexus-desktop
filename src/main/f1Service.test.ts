@@ -97,7 +97,7 @@ describe('remembering the message id of the posted calendar (per server)', () =>
 
 describe('the results ledger', () => {
   const input: ResultsInput = { season: '5', round: '3', circuit: 'Zandvoort', results: ['200000000000000001'] }
-  const outcome: RaceOutcome = { raceTitle: 'Season 5 Round 3 — Zandvoort', results: [], notFound: [], standings: { drivers: [], constructors: [] } }
+  const outcome: RaceOutcome = { raceTitle: 'Season 5 Round 3 — Zandvoort', results: [], notFound: [], standings: { drivers: [], constructors: [] }, posted: null, announceError: null, ledger: null }
   const api = (answer: () => Promise<RaceOutcome>) => ({ recordResults: vi.fn(answer) })
   const NOW = () => new Date('2026-10-10T12:00:00.000Z')
 

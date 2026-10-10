@@ -10,7 +10,8 @@ import type { SettingsStore } from './settings'
  *  - a successful calendar post / edit remembers the message id of the server,
  *  - a calendar message that is gone (deleted, not ours) is forgotten, so "Update posted calendar" is no
  *    longer offered and the UI falls back to "Post new",
- *  - a recorded race is added to the ledger only when the API answered success,
+ *  - a recorded race is added to the local ledger (the fallback of the server's own results ledger) only when
+ *    the API answered success,
  *  - a timeout, a lost answer or any refusal writes nothing.
  *
  * Nothing here retries: every call goes out exactly once (the API client does not replay a write after an
