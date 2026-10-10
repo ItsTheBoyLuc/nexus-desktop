@@ -19,6 +19,7 @@
  *   norounds | nobotperms | nofia | lostresults | noledger   F1 league cases, see mock/f1Mock.ts
  *   noreports | nopenaltyconfig | nostaff | lostdecisions | nodirty   reports and penalties, see mock/stewardMock.ts
  *   nodivisions | nosignups | noconfirmperms | nomanagechannels | ambiguousconfirm | lostcreates   attendance and sign-ups, see mock/attendanceMock.ts
+ *   noracingteams | nomanage | nomanageroles | lostracing   esports teams of the five games, see mock/racingMock.ts
  *   notadmin                       staff only, not Administrator: saving settings returns 403
  *                                  admin_required and linking an admin-level role returns
  *                                  403 role_too_privileged
@@ -59,6 +60,7 @@ import type {
 import { clone, failure, notFound, sleep, timeoutFailure } from './common'
 import { createAttendanceMock } from './attendanceMock'
 import { createF1Mock } from './f1Mock'
+import { createRacingMock } from './racingMock'
 import type { F1MockContext } from './f1Mock'
 import { createStewardMock } from './stewardMock'
 
@@ -298,6 +300,7 @@ export function installMockBridge(): void {
   const f1 = createF1Mock(mockContext)
   const steward = createStewardMock(mockContext)
   const attendance = createAttendanceMock(mockContext)
+  const racing = createRacingMock(mockContext)
   settings = f1.seedSettings(settings)
 
   let authState: AuthState =
@@ -584,6 +587,7 @@ export function installMockBridge(): void {
       ...f1.api,
       ...steward.api,
       ...attendance.api,
+      ...racing.api,
 
       getStatus: async () => currentStatus,
       onStatusChange: (callback): Unsubscribe => {

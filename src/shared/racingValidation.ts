@@ -1,0 +1,222 @@
+import { isRealDate } from './f1Validation'
+import type { RacingEventInput, RacingGame, RacingRole, RacingTeamInput, RosterAddInput } from './types'
+import { GAME_KEYS, isGameKey, isRacingRole } from './types'
+import { codePointLength, isValidHexColor, isValidSnowflake, singleLineProblem } from './validation'
+import type { FormResult } from './validation'
+import { paragraphProblem } from './penaltyValidation'
+
+/**
+ * Validation of the esports team forms (milestone 5). Every limit comes from docs/APP_API.md, so a mistake shows up next
+ * to the field before a request is made; the backend checks all of them again, and the main process re-checks everything
+ * the renderer sends (racingInputs.ts).
+ */
+
+export const RACING_LIMITS = {
+  teamNameMax: 50,
+  focusMax: 30,
+  eventNameMax: 100,
+  dateMax: 20,
+  timeMax: 20,
+  classMax: 30,
+  notesMax: 300,
+  pageMin: 1,
+  pageMax: 100
+} as const
+
+/** The five games with an esports team. Any other `{game}` is `404 unknown_game` on the server and refused before a request here. */
+export const RACING_GAMES: readonly RacingGame[] = GAME_KEYS
+
+export function isRacingGame(value: unknown): value is RacingGame {
+  return isGameKey(value)
+}
+
+// ── Teams ───────────────────────────────────────────────────────────────────
+
+export interface RacingTeamDraft {
+  name: string
+  color: string
+  /** Free text, optional. */
+  focus: string
+}
+export type RacingTeamField = keyof RacingTeamDraft
+
+/** The class or category is free text for EVERY game: 30 characters on one line, never a fixed list. */
+export function validateRacingTeamDraft(draft: RacingTeamDraft): FormResult<RacingTeamInput, RacingTeamField> {
+  const errors: Partial<Record<RacingTeamField, string>> = {}
+  const name = draft.name.trim()
+  const color = draft.color.trim()
+  const focus = draft.focus.trim()
+
+  const nameProblem = singleLineProblem(name, 1, RACING_LIMITS.teamNameMax, 'a team name')
+  if (nameProblem) errors.name = nameProblem
+  if (!isValidHexColor(color)) errors.color = 'Use a colour like #1E41FF (a # and six hex digits).'
+  if (focus !== '') {
+    const problem = singleLineProblem(focus, 1, RACING_LIMITS.focusMax, 'a class or category')
+    if (problem) errors.focus = problem
+  }
+  if (Object.keys(errors).length > 0) return { ok: false, errors }
+  return { ok: true, value: { name, color: color.toUpperCase(), ...(focus !== '' ? { focus } : {}) } }
+}
+
+/** A team name in a query parameter: 1 to 50 characters, one line. */
+export function teamNameProblem(name: string): string | null {
+  return singleLineProblem(name.trim(), 1, RACING_LIMITS.teamNameMax, 'a team name')
+}
+
+// ── Roster ──────────────────────────────────────────────────────────────────
+
+export interface RosterAddDraft {
+  team: string
+  userId: string
+  /** The dropdown value: one of the four roles, or "" while nothing is chosen. */
+  role: string
+}
+export type RosterAddField = keyof RosterAddDraft
+
+export function validateRosterAddDraft(draft: RosterAddDraft): FormResult<RosterAddInput, RosterAddField> {
+  const errors: Partial<Record<RosterAddField, string>> = {}
+  const team = draft.team.trim()
+  const teamProblem = teamNameProblem(team)
+  if (teamProblem) errors.team = teamProblem
+  if (!isValidSnowflake(draft.userId)) errors.userId = 'Choose a member.'
+  if (!isRacingRole(draft.role)) errors.role = 'Choose Race Driver, Reserve, Coach or Manager.'
+  if (Object.keys(errors).length > 0 || !isRacingRole(draft.role)) return { ok: false, errors }
+  const role: RacingRole = draft.role
+  return { ok: true, value: { team, userId: draft.userId, role } }
+}
+
+// ── Event dates ─────────────────────────────────────────────────────────────
+
+/**
+ * The formats the bot reads, in the order it tries them (docs/APP_API.md). The first one that gives a real date wins, which
+ * is why `03/04/2026` is March 4th: MM/DD/YYYY comes before DD/MM/YYYY.
+ */
+const DATE_FORMATS: ReadonlyArray<{ name: string; pattern: RegExp; read: (match: RegExpExecArray) => [number, number, number] }> = [
+  { name: 'YYYY-MM-DD', pattern: /^(\d{4})-(\d{1,2})-(\d{1,2})$/, read: (m) => [Number(m[1]), Number(m[2]), Number(m[3])] },
+  { name: 'DD-MM-YYYY', pattern: /^(\d{1,2})-(\d{1,2})-(\d{4})$/, read: (m) => [Number(m[3]), Number(m[2]), Number(m[1])] },
+  { name: 'MM/DD/YYYY', pattern: /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/, read: (m) => [Number(m[3]), Number(m[1]), Number(m[2])] },
+  { name: 'DD/MM/YYYY', pattern: /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/, read: (m) => [Number(m[3]), Number(m[2]), Number(m[1])] },
+  { name: 'YYYY/MM/DD', pattern: /^(\d{4})\/(\d{1,2})\/(\d{1,2})$/, read: (m) => [Number(m[1]), Number(m[2]), Number(m[3])] }
+]
+
+const isoOf = (year: number, month: number, day: number): string => `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+
+export interface ParsedEventDate {
+  /** The date the bot understands, as YYYY-MM-DD. */
+  iso: string
+  /** The format that matched first. */
+  format: string
+  /** The same text is a real date in a second reading that gives another day (e.g. 03/04/2026: 4 March or 3 April). */
+  ambiguous: boolean
+}
+
+/** Reads a date exactly like the bot does; null when none of the five formats gives a real date (the server would keep it and list it last). */
+export function parseEventDate(text: string): ParsedEventDate | null {
+  const value = text.trim()
+  const reads = DATE_FORMATS.flatMap((format) => {
+    const match = format.pattern.exec(value)
+    if (!match) return []
+    const [year, month, day] = format.read(match)
+    return isRealDate(day, month, year) ? [{ format: format.name, iso: isoOf(year, month, day) }] : []
+  })
+  const first = reads[0]
+  if (!first) return null
+  return { iso: first.iso, format: first.format, ambiguous: reads.some((read) => read.iso !== first.iso) }
+}
+
+const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'] as const
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'] as const
+
+/** "Wednesday 4 March 2026" for a YYYY-MM-DD date. Fixed English names, so the text is the same on every computer (no locale or ICU differences). */
+export function longDate(iso: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso)
+  if (!match) return iso
+  const [year, month, day] = [Number(match[1]), Number(match[2]), Number(match[3])]
+  if (!isRealDate(day, month, year)) return iso
+  const weekday = WEEKDAYS[new Date(Date.UTC(year, month - 1, day)).getUTCDay()] ?? ''
+  return `${weekday} ${day} ${MONTHS[month - 1] ?? ''} ${year}`
+}
+
+export type DatePreview =
+  | { ok: true; iso: string; label: string; ambiguous: boolean }
+  | { ok: false; message: string }
+
+/** What the form shows under the date: "Interpreted as: <full date>", or why the date cannot be used. */
+export function previewEventDate(text: string): DatePreview {
+  if (text.trim() === '') return { ok: false, message: 'Choose a date.' }
+  const parsed = parseEventDate(text)
+  if (!parsed) return { ok: false, message: 'That is not a date the bot can read. The server would keep it forever and list the event last. Pick a date with the date picker.' }
+  return { ok: true, iso: parsed.iso, label: longDate(parsed.iso), ambiguous: parsed.ambiguous }
+}
+
+/** True when the date is before `today` (a YYYY-MM-DD string): the list only shows upcoming events, so it would not appear. */
+export function isPastDate(iso: string, today: string): boolean {
+  return iso < today
+}
+
+// ── Events ──────────────────────────────────────────────────────────────────
+
+export interface RacingEventDraft {
+  name: string
+  /** What the date picker gives: YYYY-MM-DD. */
+  date: string
+  /** 24-hour HH:MM from the time picker. */
+  time: string
+  /** A short time zone, for example UTC or CET. */
+  zone: string
+  class: string
+  notes: string
+}
+export type RacingEventField = keyof RacingEventDraft
+
+const TIME_PATTERN = /^([01][0-9]|2[0-3]):[0-5][0-9]$/
+const ZONE_PATTERN = /^[A-Za-z0-9+:-]{1,10}$/
+
+/**
+ * The event as the API takes it. The date is sent as YYYY-MM-DD only (the first format the bot tries, so it can never be
+ * read the other way round) and must be a real date; the time is "HH:MM zone" (free text for the server, 20 characters at most).
+ */
+export function validateRacingEventDraft(draft: RacingEventDraft): FormResult<RacingEventInput, RacingEventField> {
+  const errors: Partial<Record<RacingEventField, string>> = {}
+  const name = draft.name.trim()
+  const zone = draft.zone.trim()
+  const className = draft.class.trim()
+  const notes = draft.notes.trim()
+
+  const nameProblem = singleLineProblem(name, 1, RACING_LIMITS.eventNameMax, 'an event name')
+  if (nameProblem) errors.name = nameProblem
+
+  const preview = previewEventDate(draft.date)
+  if (!preview.ok) errors.date = preview.message
+  else if (preview.iso !== draft.date.trim() || !/^\d{4}-\d{2}-\d{2}$/.test(draft.date.trim())) errors.date = 'Use the date picker: the date is sent as YYYY-MM-DD only.'
+
+  if (!TIME_PATTERN.test(draft.time.trim())) errors.time = 'Choose a time (24-hour, for example 20:00).'
+  if (!ZONE_PATTERN.test(zone)) errors.zone = 'Enter a short time zone of up to 10 characters, for example UTC or CET.'
+  const timeText = `${draft.time.trim()} ${zone}`
+  if (!errors.time && !errors.zone && codePointLength(timeText) > RACING_LIMITS.timeMax) errors.zone = `Time and zone together can be at most ${RACING_LIMITS.timeMax} characters.`
+
+  if (className !== '') {
+    const problem = singleLineProblem(className, 1, RACING_LIMITS.classMax, 'a class')
+    if (problem) errors.class = problem
+  }
+  if (notes !== '') {
+    const problem = paragraphProblem(notes, 1, RACING_LIMITS.notesMax, 'the notes')
+    if (problem) errors.notes = problem
+  }
+  if (Object.keys(errors).length > 0 || !preview.ok) return { ok: false, errors }
+  return { ok: true, value: { name, date: preview.iso, time: timeText, ...(className !== '' ? { class: className } : {}), ...(notes !== '' ? { notes } : {}) } }
+}
+
+/** A page request: `limit` 1-100, `offset` 0 or more. */
+export function validateRacingPage(limit: unknown, offset: unknown): { ok: true; limit?: number; offset?: number } | { ok: false; message: string } {
+  const result: { ok: true; limit?: number; offset?: number } = { ok: true }
+  if (limit !== undefined) {
+    if (typeof limit !== 'number' || !Number.isInteger(limit) || limit < RACING_LIMITS.pageMin || limit > RACING_LIMITS.pageMax) return { ok: false, message: `The page size must be a whole number from ${RACING_LIMITS.pageMin} to ${RACING_LIMITS.pageMax}.` }
+    result.limit = limit
+  }
+  if (offset !== undefined) {
+    if (typeof offset !== 'number' || !Number.isInteger(offset) || offset < 0 || offset > 1_000_000) return { ok: false, message: 'The page offset is not valid.' }
+    result.offset = offset
+  }
+  return result
+}

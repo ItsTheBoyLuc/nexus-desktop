@@ -40,7 +40,18 @@ describe('participant data is never written to disk or browser storage', () => {
   })
 
   it('the code that fetches or shows participants never logs and never touches the file system', () => {
-    const handlers = ['main/attendanceApi.ts', 'renderer/screens/Signups.tsx', 'renderer/screens/SignupParticipants.tsx', 'renderer/hooks/paged.ts']
+    const handlers = [
+      'main/attendanceApi.ts',
+      'renderer/screens/Signups.tsx',
+      'renderer/screens/SignupParticipants.tsx',
+      'renderer/hooks/paged.ts',
+      // the esports rosters (milestone 5): member names and roles are personal data too
+      'main/racingApi.ts',
+      'renderer/screens/EsportsTeams.tsx',
+      'renderer/screens/RosterDialogs.tsx',
+      'renderer/screens/RacingTeamDialog.tsx',
+      'renderer/screens/EsportsEvents.tsx'
+    ]
     for (const name of handlers) {
       const text = read(join(SRC, name))
       expect(text, name).not.toMatch(/\blog\.(info|warn|error)\b|console\.|from 'node:fs'|from "fs"|writeFile/)
@@ -50,6 +61,13 @@ describe('participant data is never written to disk or browser storage', () => {
   it('the main-process IPC handlers of the sign-up participants do not log', () => {
     const ipc = read(join(SRC, 'main/ipc.ts'))
     const lines = ipc.split('\n').filter((line) => /Signup|Participant/.test(line))
+    expect(lines.length).toBeGreaterThan(0)
+    for (const line of lines) expect(line).not.toMatch(/log\./)
+  })
+
+  it('the main-process IPC handlers of the esports rosters do not log', () => {
+    const ipc = read(join(SRC, 'main/ipc.ts'))
+    const lines = ipc.split('\n').filter((line) => /Racing|racing/.test(line))
     expect(lines.length).toBeGreaterThan(0)
     for (const line of lines) expect(line).not.toMatch(/log\./)
   })
@@ -78,6 +96,9 @@ describe('the settings file cannot be made to hold participant data', () => {
       participants: [{ username: SECRET, answers: [{ question: 'Age', answer: SECRET }] }],
       signups: { '810000000000000001': { participants: { 1: { username: SECRET } } } },
       answers: SECRET,
+      roster: [{ userId: '4100', username: SECRET, role: 'Manager' }],
+      teams: { 'Fake Team': { roster: [SECRET] } },
+      racing: { lmu: { teams: [SECRET] } },
       panels: { x: { messageId: SECRET } }
     })
     const written = readFileSync(file, 'utf8')
@@ -86,7 +107,7 @@ describe('the settings file cannot be made to hold participant data', () => {
   })
 
   it('a hand-edited settings file with participant data is read field by field and never written back', () => {
-    writeFileSync(file, JSON.stringify({ lastGuildId: '555000000000000001', participants: [SECRET], signups: { a: SECRET }, ledger: 'nope' }))
+    writeFileSync(file, JSON.stringify({ lastGuildId: '555000000000000001', participants: [SECRET], signups: { a: SECRET }, roster: [SECRET], racingTeams: { lmu: [SECRET] }, ledger: 'nope' }))
     const store = new SettingsStore(file)
     store.set({ lastGame: 'f1' }) // any save rewrites the file from what the store knows
     const written = readFileSync(file, 'utf8')

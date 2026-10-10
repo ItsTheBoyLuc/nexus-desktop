@@ -1,3 +1,5 @@
+import { isGameKey } from '../../shared/types'
+
 /**
  * Which sidebar modules are available, and the short reason shown (tooltip and hint) when one is not.
  * Kept free of React so the rules can be tested.
@@ -13,7 +15,7 @@ export interface ModuleContext {
   hasServer: boolean
   /** Game key from the URL, if any. */
   game: string | null
-  /** The chosen game is enabled for this server. */
+  /** The chosen game is enabled for this server in Games & Tiers (league data). Only the League cares. */
   gameEnabled: boolean
 }
 
@@ -32,12 +34,18 @@ function gameState(context: ModuleContext): ModuleState | null {
   return null
 }
 
-/** League: only Formula 1 has one. */
+/** League: only Formula 1 has one, and it works on the league game that is enabled in Games & Tiers. */
 export function leagueModuleState(context: ModuleContext): ModuleState {
   return gameState(context) ?? (context.game === 'f1' ? available : off('Only Formula 1 has a league module.'))
 }
 
-/** Esports team: every game has one. */
+/**
+ * Esports team: every one of the five games has one, and it does NOT depend on the game being enabled in Games & Tiers: the
+ * esports teams, events, results and attendance are separate data (docs/APP_API.md, "Esports teams"). It is never greyed
+ * out for that reason.
+ */
 export function esportsModuleState(context: ModuleContext): ModuleState {
-  return gameState(context) ?? available
+  if (!context.hasServer) return off('Choose a server first.')
+  if (!context.game || !isGameKey(context.game)) return off('Choose a game first.')
+  return available
 }

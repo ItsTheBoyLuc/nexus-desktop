@@ -28,6 +28,8 @@ import { cdnImage, clientError, invalid, isCount, isRecord, isText, list } from 
 import { createAttendanceApi } from './attendanceApi'
 import type { AttendanceApi } from './attendanceApi'
 import { createF1Api } from './f1Api'
+import { createRacingApi } from './racingApi'
+import type { RacingApi } from './racingApi'
 import type { F1Api } from './f1Api'
 import { createStewardApi } from './f1StewardApi'
 import type { StewardApi } from './f1StewardApi'
@@ -36,7 +38,7 @@ import type { StewardApi } from './f1StewardApi'
  * Everything the UI can ask the backend for. Responses are validated, never trusted blindly.
  * Paths, methods, bodies and response shapes follow docs/APP_API.md and nothing else.
  */
-export interface NexusApi extends F1Api, StewardApi, AttendanceApi {
+export interface NexusApi extends F1Api, StewardApi, AttendanceApi, RacingApi {
   me: () => Promise<UserInfo>
   guilds: () => Promise<Guild[]>
   games: (guildId: string) => Promise<Game[]>
@@ -194,6 +196,7 @@ export function createNexusApi(client: ApiClient): NexusApi {
     ...createF1Api(client),
     ...createStewardApi(client),
     ...createAttendanceApi(client),
+    ...createRacingApi(client),
 
     async me() {
       const json = await client.request({ path: '/api/app/v1/me' })

@@ -3,6 +3,17 @@ import type {
   AddDriverResult,
   AdvanceRaceInput,
   AdvanceRaceResult,
+  RacingDriverProfile,
+  RacingEvent,
+  RacingEventInput,
+  RacingEventPage,
+  RacingGame,
+  RacingTeam,
+  RacingTeamDetail,
+  RacingTeamInput,
+  RosterAddInput,
+  RosterAddResult,
+  RosterRemoveResult,
   AttendanceDivisions,
   AttendancePost,
   AttendancePostFilters,
@@ -207,6 +218,18 @@ export interface NexusBridge {
     createSignup: (guildId: string, input: SignupInput) => Promise<IpcResult<SignupCreateResult>>
     closeSignup: (guildId: string, signupId: string) => Promise<IpcResult<SignupCloseResult>>
     removeParticipant: (guildId: string, signupId: string, userId: string) => Promise<IpcResult<ParticipantRemoveResult>>
+
+    // Esports teams (milestone 5): every call carries the game, which is the {game} of the endpoint. Writes are sent once and never replayed.
+    racingTeams: (guildId: string, game: RacingGame) => Promise<IpcResult<RacingTeam[]>>
+    /** The roster is personal data of members: keep it in memory only, never write it anywhere. */
+    racingTeam: (guildId: string, game: RacingGame, name: string) => Promise<IpcResult<RacingTeamDetail>>
+    /** Needs Manage Server or Administrator (403 manage_server_required). A lost answer may already have created the Discord role: never repeat it with the same data. */
+    createRacingTeam: (guildId: string, game: RacingGame, input: RacingTeamInput) => Promise<IpcResult<RacingTeamDetail>>
+    addRosterMember: (guildId: string, game: RacingGame, input: RosterAddInput) => Promise<IpcResult<RosterAddResult>>
+    removeRosterMember: (guildId: string, game: RacingGame, team: string, userId: string) => Promise<IpcResult<RosterRemoveResult>>
+    racingDriver: (guildId: string, game: RacingGame, userId: string) => Promise<IpcResult<RacingDriverProfile>>
+    racingEvents: (guildId: string, game: RacingGame, page?: { limit?: number; offset?: number }) => Promise<IpcResult<RacingEventPage>>
+    addRacingEvent: (guildId: string, game: RacingGame, input: RacingEventInput) => Promise<IpcResult<RacingEvent>>
 
     /** Current connection status (components that mount late would otherwise miss earlier events). */
     getStatus: () => Promise<ApiStatus>

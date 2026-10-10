@@ -131,7 +131,9 @@ export const MEMBERS: Member[] = [
   pool(32, 'Commentator Chris', 'chris_commentary'),
   pool(33, 'Spectator Sam', 'spectator_sam'),
   pool(34, 'Reserve Rita', 'rita_reserve'),
-  pool(35, 'Sim Rookie', 'sim_rookie')
+  pool(35, 'Sim Rookie', 'sim_rookie'),
+  // Obviously fake members for the esports team screens (milestone 5): roster data must never look like real people.
+  ...Array.from({ length: 12 }, (_, index) => pool(100 + index, `Fake Racer ${String(index + 1).padStart(2, '0')}`, `fake_racer_${String(index + 1).padStart(2, '0')}`))
 ]
 /** Drivers in the rosters who have left the fake server: still on the roster, not found by the member search. */
 export const LEFT_SERVER = new Set([memberId(3)])

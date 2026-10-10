@@ -4,11 +4,11 @@ import { useLocation } from 'react-router-dom'
 import { GAME_LABELS, isGameKey } from '../../shared/types'
 import { Button } from '../components'
 import { useGuildGames, useGuilds, useRefresh } from '../hooks/data'
-import { PAGE_LABELS, parseLocation, parseServerPage, SERVER_PAGE_LABELS } from '../lib/routes'
+import { ESPORTS_PAGE_LABELS, PAGE_LABELS, parseLocation, parseServerPage, SERVER_PAGE_LABELS } from '../lib/routes'
 
 export function TopBar() {
   const { pathname } = useLocation()
-  const { guildId, game, page } = parseLocation(pathname)
+  const { guildId, game, page, esportsPage } = parseLocation(pathname)
   const serverPage = parseServerPage(pathname)
   const guilds = useGuilds()
   const games = useGuildGames(guildId ?? undefined)
@@ -32,6 +32,7 @@ export function TopBar() {
     } else if (game) {
       crumbs.push(gameLabel ?? game)
       if (page) crumbs.push(PAGE_LABELS[page])
+      if (esportsPage) crumbs.push(ESPORTS_PAGE_LABELS[esportsPage])
     } else {
       crumbs.push('Choose a game')
     }

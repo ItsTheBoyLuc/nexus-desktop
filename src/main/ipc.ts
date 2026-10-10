@@ -29,6 +29,7 @@ import {
   parseSignupStatus
 } from '../shared/attendanceInputs'
 import { IPC } from '../shared/ipc'
+import { parseRacingEventInput, parseRacingGame, parseRacingPage, parseRacingTeamInput, parseRacingTeamName, parseRacingUserId, parseRosterAddInput } from '../shared/racingInputs'
 import {
   parseAdvanceInput,
   parseBanInput,
@@ -45,7 +46,7 @@ import {
   parseReportIndex,
   parseReportOverviewQuery
 } from '../shared/penaltyInputs'
-import type { ApiErrorInfo, ApiStatus, IpcResult } from '../shared/types'
+import type { ApiErrorInfo, ApiStatus, IpcResult, RacingGame } from '../shared/types'
 import { isValidKey, isValidSnowflake, validateAnnouncement } from '../shared/validation'
 import { ApiError } from './apiClient'
 import type { AuthService } from './auth'
@@ -269,6 +270,24 @@ export function registerIpc(deps: IpcDeps): void {
   handle(IPC.apiSignupCreate, (guildId, input) => withGuild(guildId, (id) => deps.api.createSignup(id, valid(parseSignupInput(input)))))
   handle(IPC.apiSignupClose, (guildId, signupId) => withGuild(guildId, (id) => deps.api.closeSignup(id, valid(parseMessageId(signupId)))))
   handle(IPC.apiSignupParticipantRemove, (guildId, signupId, userId) => withGuild(guildId, (id) => deps.api.removeParticipant(id, valid(parseMessageId(signupId)), userIdOf(userId))))
+
+  // Esports teams (milestone 5). Same rule: re-checked here, the game first, and every write goes out once. Roster data is never logged or stored.
+  const racing = <T>(guildId: unknown, game: unknown, run: (id: string, checked: RacingGame) => Promise<T>): Promise<IpcResult<T>> =>
+    withGuild(guildId, (id) => {
+      const parsed = parseRacingGame(game)
+      if (!parsed.ok) throw new ApiError({ kind: 'validation', code: 'unknown_game', message: parsed.message, mayHaveBeenSent: false })
+      return run(id, parsed.value)
+    })
+  handle(IPC.apiRacingTeams, (guildId, game) => racing(guildId, game, (id, g) => deps.api.racingTeams(id, g)))
+  handle(IPC.apiRacingTeam, (guildId, game, name) => racing(guildId, game, (id, g) => deps.api.racingTeam(id, g, valid(parseRacingTeamName(name)))))
+  handle(IPC.apiRacingTeamCreate, (guildId, game, input) => racing(guildId, game, (id, g) => deps.api.createRacingTeam(id, g, valid(parseRacingTeamInput(input)))))
+  handle(IPC.apiRacingRosterAdd, (guildId, game, input) => racing(guildId, game, (id, g) => deps.api.addRosterMember(id, g, valid(parseRosterAddInput(input)))))
+  handle(IPC.apiRacingRosterRemove, (guildId, game, team, userId) =>
+    racing(guildId, game, (id, g) => deps.api.removeRosterMember(id, g, valid(parseRacingTeamName(team)), valid(parseRacingUserId(userId))))
+  )
+  handle(IPC.apiRacingDriver, (guildId, game, userId) => racing(guildId, game, (id, g) => deps.api.racingDriver(id, g, valid(parseRacingUserId(userId)))))
+  handle(IPC.apiRacingEvents, (guildId, game, page) => racing(guildId, game, (id, g) => deps.api.racingEvents(id, g, valid(parseRacingPage(page)))))
+  handle(IPC.apiRacingEventAdd, (guildId, game, input) => racing(guildId, game, (id, g) => deps.api.addRacingEvent(id, g, valid(parseRacingEventInput(input)))))
 
   handle(IPC.apiGetStatus, () => deps.getApiStatus())
 

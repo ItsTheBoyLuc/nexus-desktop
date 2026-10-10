@@ -1,4 +1,4 @@
-import { Car, Flag, Gauge, Layers, Megaphone, Power, Route, Timer } from 'lucide-react'
+import { Car, Flag, Gauge, Layers, Megaphone, Power, Route, Timer, Users } from 'lucide-react'
 import { useState } from 'react'
 import type { ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
@@ -78,7 +78,7 @@ export function GamePicker() {
         <EmptyState
           icon={<Power size={24} aria-hidden="true" />}
           title="No game is enabled yet"
-          description="Enable a game below to unlock its tiers and sign-up panels, the League modules (Formula 1) and the Esports team modules. Announcement, Settings and Overview already work without one."
+          description="Enable a game below to unlock its tiers and sign-up panels and the League modules (Formula 1). The Esports team of every game, Announcement, Settings and Overview already work without one."
           action={
             <Link className="btn btn--secondary" to={routes.server(guildId, 'announcement')}>
               <Megaphone size={16} aria-hidden="true" />
@@ -103,7 +103,7 @@ export function GamePicker() {
                   <span id={descriptionId} className="game-card__text">
                     {game.enabled
                       ? 'Open its modules, or manage its tiers and sign-up panels.'
-                      : 'Not enabled for this server. Enabling it unlocks its tiers, sign-up panels and modules.'}
+                      : 'Not enabled for this server. Enabling it unlocks its tiers, sign-up panels and league modules. Its Esports team works without it.'}
                   </span>
                   <span className="game-card__actions">
                     {game.enabled ? (
@@ -123,6 +123,12 @@ export function GamePicker() {
                         Enable game
                       </Button>
                     )}
+                    {guildId && isGameKey(game.key) ? (
+                      <Link className="btn btn--secondary btn--sm" to={routes.esports(guildId, game.key)}>
+                        <Users size={14} aria-hidden="true" />
+                        Esports team
+                      </Link>
+                    ) : null}
                   </span>
                 </Card>
               </li>

@@ -31,8 +31,8 @@ import { useGuildGames, useGuilds } from '../hooks/data'
 import { mergeGames } from '../lib/catalog'
 import { esportsModuleState, leagueModuleState, serverModuleState } from '../lib/modules'
 import type { ModuleState } from '../lib/modules'
-import { gameHomePage, isLeaguePage, LEAGUE_PAGES, PAGE_LABELS, parseLocation, parseServerPage, routes, SERVER_PAGE_LABELS, SERVER_PAGES } from '../lib/routes'
-import type { LeaguePageKey, ServerPageKey } from '../lib/routes'
+import { ESPORTS_PAGE_LABELS, ESPORTS_PAGES, gameHomePage, isLeaguePage, LEAGUE_PAGES, PAGE_LABELS, parseLocation, parseServerPage, routes, SERVER_PAGE_LABELS, SERVER_PAGES } from '../lib/routes'
+import type { EsportsPageKey, LeaguePageKey, ServerPageKey } from '../lib/routes'
 
 const SERVER_ICONS: Record<ServerPageKey, ReactNode> = {
   overview: <LayoutDashboard size={18} aria-hidden="true" />,
@@ -50,6 +50,14 @@ const LEAGUE_ICONS: Record<LeaguePageKey, ReactNode> = {
   'dirty-drivers': <ShieldAlert size={16} aria-hidden="true" />,
   attendance: <CalendarCheck size={16} aria-hidden="true" />,
   signups: <UserPlus size={16} aria-hidden="true" />
+}
+
+const ESPORTS_ICONS: Record<EsportsPageKey, ReactNode> = {
+  teams: <Users size={16} aria-hidden="true" />,
+  events: <CalendarDays size={16} aria-hidden="true" />,
+  results: <Trophy size={16} aria-hidden="true" />,
+  attendance: <CalendarCheck size={16} aria-hidden="true" />,
+  announcement: <Megaphone size={16} aria-hidden="true" />
 }
 
 const navClass = ({ isActive }: { isActive: boolean }): string => `nav-item${isActive ? ' nav-item--active' : ''}`
@@ -97,11 +105,42 @@ function LeagueGroup({ state, guildId, game, expandedByRoute }: { state: ModuleS
   )
 }
 
+/**
+ * The Esports team group: Teams, Events, Results, Attendance and Announcement of the selected game. It follows the game selector
+ * (the `{game}` of every endpoint) and does not need the game to be enabled in Games & Tiers: the esports data is separate.
+ */
+function EsportsGroup({ guildId, game, expandedByRoute }: { guildId: string; game: string; expandedByRoute: boolean }) {
+  const [userOpen, setUserOpen] = useState<boolean | null>(null)
+  const expanded = userOpen ?? expandedByRoute
+  const listId = 'nav-esports-list'
+  return (
+    <div className="nav-group">
+      <button type="button" className="nav-item nav-item--group" aria-expanded={expanded} aria-controls={listId} onClick={() => setUserOpen(!expanded)}>
+        <ClipboardList size={18} aria-hidden="true" />
+        <span className="nav-item__label">Esports team</span>
+        {expanded ? <ChevronDown size={16} aria-hidden="true" /> : <ChevronRight size={16} aria-hidden="true" />}
+      </button>
+      {expanded ? (
+        <ul id={listId} className="nav-sublist">
+          {ESPORTS_PAGES.map((key) => (
+            <li key={key}>
+              <NavLink to={routes.esports(guildId, game, key)} className={({ isActive }) => `${navClass({ isActive })} nav-item--sub`}>
+                {ESPORTS_ICONS[key]}
+                {ESPORTS_PAGE_LABELS[key]}
+              </NavLink>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  )
+}
+
 export function Sidebar() {
   const { pathname } = useLocation()
   const navigate = useNavigate()
   const { state, logout } = useAuth()
-  const { guildId, game, page } = parseLocation(pathname)
+  const { guildId, game, page, esportsPage } = parseLocation(pathname)
   const serverPage = parseServerPage(pathname)
 
   const guilds = useGuilds()
@@ -110,7 +149,8 @@ export function Sidebar() {
   const user = state.status === 'signed-in' ? state.user : null
   const guildList = guilds.status === 'ready' ? guilds.data : []
   const currentGuild = guildList.find((item) => item.id === guildId)
-  const gameList = games.status === 'ready' ? mergeGames(games.data) : []
+  // The five games are always listed and always selectable: the Esports team works for every one of them, enabled in Games & Tiers or not.
+  const gameList = mergeGames(games.status === 'ready' ? games.data : [])
   const currentGame = gameList.find((item) => item.key === game)
 
   const serverItems: MenuItem[] = [
@@ -139,6 +179,11 @@ export function Sidebar() {
 
   const pickGame = (key: string): void => {
     if (!guildId) return
+    // On an esports page every game has the same pages: stay on that page of the new game (its own data is read from scratch).
+    if (page === 'esports') {
+      navigate(routes.esports(guildId, key, esportsPage ?? 'teams'))
+      return
+    }
     // Stay on the same kind of page when the new game has it, otherwise open the game's home page.
     const keep = page && (key === 'f1' || !isLeaguePage(page)) ? page : gameHomePage(key)
     navigate(routes.game(guildId, key, keep))
@@ -185,12 +230,8 @@ export function Sidebar() {
           label="Game"
           value={game ?? ''}
           placeholder={guildId ? 'Select a game' : 'Choose a server first'}
-          disabled={!guildId || games.status !== 'ready'}
-          options={gameList.map((item) => ({
-            value: item.key,
-            label: item.enabled ? item.label : `${item.label} (not enabled)`,
-            disabled: !item.enabled
-          }))}
+          disabled={!guildId}
+          options={gameList.map((item) => ({ value: item.key, label: item.label }))}
           onChange={pickGame}
         />
         {guildId ? <Link to={routes.games(guildId)}>All games</Link> : null}
@@ -199,14 +240,16 @@ export function Sidebar() {
       <nav className="sidebar__nav sidebar__nav--modules" aria-label="Game modules">
         <LeagueGroup state={leagueState} guildId={guildId} game={game} expandedByRoute={isLeaguePage(page)} />
         {esportsState.enabled && guildId && game ? (
-          <NavLink to={routes.game(guildId, game, 'esports')} className={navClass}>
-            <ClipboardList size={18} aria-hidden="true" />
-            {PAGE_LABELS.esports}
-          </NavLink>
+          <EsportsGroup guildId={guildId} game={game} expandedByRoute={page === 'esports'} />
         ) : (
           <NavDisabled icon={<ClipboardList size={18} aria-hidden="true" />} label={PAGE_LABELS.esports} reason={esportsState.reason ?? 'Not available.'} />
         )}
         {!leagueState.enabled ? <p className="sidebar__hint">{leagueState.reason}</p> : null}
+        {game === 'f1' ? (
+          <p className="sidebar__hint">
+            <strong>League</strong> is the championship you organise yourself. <strong>Esports team</strong> is Formula 1 Esports: teams that race in external competitions. They never share teams, events or results.
+          </p>
+        ) : null}
       </nav>
 
       <div className="sidebar__footer">

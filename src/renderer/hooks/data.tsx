@@ -16,6 +16,10 @@ import type {
   PenaltyOverview,
   PenaltySettings,
   PointsSystem,
+  RacingDriverProfile,
+  RacingGame,
+  RacingTeam,
+  RacingTeamDetail,
   Report,
   ReportRoundDetail,
   ReportRoundRow,
@@ -28,6 +32,7 @@ import type {
 } from '../../shared/types'
 import { cached, clearCache, dropCached, onInvalidate } from '../lib/cache'
 import { errorCode, unwrap } from '../lib/errors'
+import { racingKey } from '../lib/racingScope'
 import { useAsync } from './useAsync'
 import type { AsyncState } from './useAsync'
 
@@ -222,4 +227,19 @@ export function useSignups(guildId: string | undefined): Loaded<Signup[]> {
 
 export function useSignup(guildId: string | undefined, signupId: string | null): Loaded<Signup> {
   return useApiData(guildId && signupId ? `league-signups:${guildId}:one:${signupId}` : null, () => unwrap(window.nexus.api.signup(guildId ?? '', signupId ?? '')), false)
+}
+
+// ── Esports teams (milestone 5): always read fresh, keyed by server AND game (see lib/racingScope.ts) ──
+// Roster and member data is personal data: it is never put in the shared cache, it only lives in component state.
+
+export function useRacingTeams(guildId: string | undefined, game: RacingGame): Loaded<RacingTeam[]> {
+  return useApiData(guildId ? racingKey(guildId, game, 'teams') : null, () => unwrap(window.nexus.api.racingTeams(guildId ?? '', game)), false)
+}
+
+export function useRacingTeam(guildId: string | undefined, game: RacingGame, name: string | null): Loaded<RacingTeamDetail> {
+  return useApiData(guildId && name ? racingKey(guildId, game, 'team', name.toLowerCase()) : null, () => unwrap(window.nexus.api.racingTeam(guildId ?? '', game, name ?? '')), false)
+}
+
+export function useRacingDriver(guildId: string | undefined, game: RacingGame, userId: string | null): Loaded<RacingDriverProfile> {
+  return useApiData(guildId && userId ? racingKey(guildId, game, 'driver', userId) : null, () => unwrap(window.nexus.api.racingDriver(guildId ?? '', game, userId ?? '')), false)
 }

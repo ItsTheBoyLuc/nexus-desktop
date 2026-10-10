@@ -938,6 +938,124 @@ export interface ParticipantRemoveResult {
   participantCount: number
 }
 
+// ── Esports teams (milestone 5): /racing/{game} for lmu, iracing, gt7, acc and f1 ──────────────────────────
+
+/** The four roster roles the app offers (the commands accept any text; the app is limited to these). */
+export const RACING_ROLES = ['Race Driver', 'Reserve', 'Coach', 'Manager'] as const
+export type RacingRole = (typeof RACING_ROLES)[number]
+
+export function isRacingRole(value: unknown): value is RacingRole {
+  return typeof value === 'string' && (RACING_ROLES as readonly string[]).includes(value)
+}
+
+/** The five games that have an esports team. The key is the `{game}` path segment of every endpoint. */
+export type RacingGame = GameKey
+
+export interface RacingTeam {
+  name: string
+  /** "#RRGGBB" upper-case, or null if the server sent something else. */
+  color: string | null
+  /** Free text (at most 30 characters); empty when none was given. Never a fixed list. */
+  focus: string
+  roleId: string | null
+  roleName: string | null
+  /** False when the Discord role of the team was deleted. */
+  roleExists: boolean
+  memberCount: number
+  createdBy: string
+  createdAt: string
+}
+
+export interface RosterEntry {
+  userId: string
+  username: string
+  /** The name stored when the member joined. */
+  displayName: string
+  /** Their name now; null when they left the server. */
+  currentName: string | null
+  inServer: boolean
+  /** One of RACING_ROLES for entries made by the app; the commands may have stored other text. */
+  role: string
+  joinedAt: string
+}
+
+export interface RacingTeamDetail extends RacingTeam {
+  roster: RosterEntry[]
+}
+
+export interface RacingTeamInput {
+  name: string
+  color: string
+  /** Optional free text, at most 30 characters. */
+  focus?: string
+}
+
+export interface RosterAddInput {
+  team: string
+  userId: string
+  role: RacingRole
+}
+
+export interface RosterAddResult {
+  entry: RosterEntry
+  /** The team's Discord role was given to the member. */
+  roleAssigned: boolean
+}
+
+export interface RosterRemoveResult {
+  removed: RosterEntry
+  roleRemoved: boolean
+  /** Why the role could not be taken away although the entry was removed (the command ignores this silently). */
+  roleError: string | null
+}
+
+export interface RacingMembership {
+  team: string
+  role: string
+  joinedAt: string
+  /** The date part of joinedAt, as the server formats it. */
+  joined: string
+}
+
+export interface RacingDriverProfile {
+  userId: string
+  displayName: string | null
+  inServer: boolean
+  /** Empty for someone on no team of this game. */
+  memberships: RacingMembership[]
+}
+
+export interface RacingEvent {
+  id: string
+  name: string
+  /** As stored: free text (a date the command could not parse is kept forever and listed last). */
+  date: string
+  time: string
+  /** Free text, at most 30 characters (stored as `class` for lmu and `series` for the other games; the API hides that). */
+  class: string
+  notes: string
+  /** The date the bot understood, as YYYY-MM-DD; null when the text could not be parsed. */
+  dateIso: string | null
+  createdBy: string
+  createdAt: string
+}
+
+export interface RacingEventPage {
+  total: number
+  limit: number
+  offset: number
+  events: RacingEvent[]
+}
+
+export interface RacingEventInput {
+  name: string
+  /** Always sent as YYYY-MM-DD, the first format the bot tries. */
+  date: string
+  time: string
+  class?: string
+  notes?: string
+}
+
 export type ApiErrorKind =
   | 'http'
   | 'network'

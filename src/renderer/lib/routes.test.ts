@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { esportsModuleState, leagueModuleState, serverModuleState } from './modules'
-import { gameHomePage, isLeaguePage, parseLocation, parseServerPage, routes } from './routes'
+import { ESPORTS_PAGES, gameHomePage, isLeaguePage, parseLocation, parseServerPage, routes } from './routes'
 
 describe('route helpers', () => {
   it('builds and parses game paths consistently', () => {
     expect(routes.game('123', 'f1', 'calendar')).toBe('/g/123/f1/calendar')
-    expect(parseLocation(routes.game('123', 'f1', 'dirty-drivers'))).toEqual({ guildId: '123', game: 'f1', page: 'dirty-drivers' })
-    expect(parseLocation(routes.game('123', 'iracing'))).toEqual({ guildId: '123', game: 'iracing', page: 'esports' })
+    expect(parseLocation(routes.game('123', 'f1', 'dirty-drivers'))).toEqual({ guildId: '123', game: 'f1', page: 'dirty-drivers', esportsPage: null })
+    expect(parseLocation(routes.game('123', 'iracing'))).toEqual({ guildId: '123', game: 'iracing', page: 'esports', esportsPage: null })
   })
 
   it('every game opens somewhere: Formula 1 on its league, the others on their esports team', () => {
@@ -14,21 +14,39 @@ describe('route helpers', () => {
     for (const game of ['lmu', 'iracing', 'gt7', 'acc']) expect(gameHomePage(game)).toBe('esports')
   })
 
+  it('builds and parses the esports pages of every game, which are separate from the league pages', () => {
+    for (const game of ['f1', 'lmu', 'iracing', 'gt7', 'acc']) {
+      for (const page of ESPORTS_PAGES) {
+        expect(routes.esports('123', game, page)).toBe(`/g/123/${game}/esports/${page}`)
+        expect(parseLocation(routes.esports('123', game, page)), `${game} ${page}`).toEqual({ guildId: '123', game, page: 'esports', esportsPage: page })
+      }
+    }
+    expect(routes.esports('123', 'lmu')).toBe('/g/123/lmu/esports/teams')
+    expect(ESPORTS_PAGES).toEqual(['teams', 'events', 'results', 'attendance', 'announcement'])
+    // the league pages with the same names are different paths
+    expect(routes.game('123', 'f1', 'teams')).toBe('/g/123/f1/teams')
+    expect(parseLocation('/g/123/f1/teams').esportsPage).toBeNull()
+    expect(parseLocation('/g/123/f1/esports')).toEqual({ guildId: '123', game: 'f1', page: 'esports', esportsPage: null })
+    expect(parseLocation('/g/123/f1/esports/nonsense')).toEqual({ guildId: '123', game: 'f1', page: 'esports', esportsPage: null })
+    expect(parseLocation('/g/123/f1/esports/teams/extra').guildId).toBeNull()
+    expect(parseLocation('/g/123/f1/calendar/teams').guildId).toBeNull()
+  })
+
   it('builds and parses server-level pages, which have no game', () => {
     expect(routes.server('123', 'tiers')).toBe('/g/123/server/tiers')
     expect(routes.server('123')).toBe('/g/123/server/overview')
     expect(parseServerPage('/g/123/server/settings')).toBe('settings')
-    expect(parseLocation('/g/123/server/settings')).toEqual({ guildId: '123', game: null, page: null })
+    expect(parseLocation('/g/123/server/settings')).toEqual({ guildId: '123', game: null, page: null, esportsPage: null })
     expect(parseServerPage('/g/123/f1/calendar')).toBeNull()
     expect(parseServerPage('/g/123/server/unknown')).toBeNull()
     expect(parseServerPage('/g/123/server/settings/extra')).toBeNull()
   })
 
   it('parses the game picker and the server list', () => {
-    expect(parseLocation(routes.games('123'))).toEqual({ guildId: '123', game: null, page: null })
-    expect(parseLocation('/g/123/')).toEqual({ guildId: '123', game: null, page: null })
-    expect(parseLocation(routes.servers)).toEqual({ guildId: null, game: null, page: null })
-    expect(parseLocation(routes.login)).toEqual({ guildId: null, game: null, page: null })
+    expect(parseLocation(routes.games('123'))).toEqual({ guildId: '123', game: null, page: null, esportsPage: null })
+    expect(parseLocation('/g/123/')).toEqual({ guildId: '123', game: null, page: null, esportsPage: null })
+    expect(parseLocation(routes.servers)).toEqual({ guildId: null, game: null, page: null, esportsPage: null })
+    expect(parseLocation(routes.login)).toEqual({ guildId: null, game: null, page: null, esportsPage: null })
   })
 
   it('ignores anything that is not a valid app path', () => {
@@ -53,15 +71,25 @@ describe('which sidebar modules are available', () => {
     expect(serverModuleState({ hasServer: false })).toEqual({ enabled: false, reason: 'Choose a server first.' })
   })
 
-  it('game modules explain what is missing, in order: server, game, enabled', () => {
+  it('the league explains what is missing, in order: server, game, enabled; the esports team needs only a server and a game', () => {
     const state = { hasServer: true, game: 'f1', gameEnabled: true }
     expect(leagueModuleState({ ...state, hasServer: false }).reason).toBe('Choose a server first.')
     expect(leagueModuleState({ ...state, game: null }).reason).toBe('Choose a game first.')
     expect(leagueModuleState({ ...state, gameEnabled: false }).reason).toBe('Enable this game first.')
-    expect(esportsModuleState({ ...state, gameEnabled: false }).reason).toBe('Enable this game first.')
+    expect(esportsModuleState({ ...state, hasServer: false }).reason).toBe('Choose a server first.')
+    expect(esportsModuleState({ ...state, game: null }).reason).toBe('Choose a game first.')
+    expect(esportsModuleState({ ...state, game: 'forza' }).reason).toBe('Choose a game first.')
   })
 
-  it('only Formula 1 has a league, but every enabled game has an esports team', () => {
+  it('the esports team is NEVER greyed out because the game is not enabled in Games & Tiers (separate data)', () => {
+    for (const game of ['f1', 'lmu', 'iracing', 'gt7', 'acc']) {
+      expect(esportsModuleState({ hasServer: true, game, gameEnabled: false }), game).toEqual({ enabled: true, reason: null })
+    }
+    // the league of a game that is not enabled still is
+    expect(leagueModuleState({ hasServer: true, game: 'f1', gameEnabled: false }).enabled).toBe(false)
+  })
+
+  it('only Formula 1 has a league, but every game has an esports team', () => {
     expect(leagueModuleState({ hasServer: true, game: 'f1', gameEnabled: true }).enabled).toBe(true)
     for (const game of ['lmu', 'iracing', 'gt7', 'acc']) {
       expect(leagueModuleState({ hasServer: true, game, gameEnabled: true })).toEqual({ enabled: false, reason: 'Only Formula 1 has a league module.' })

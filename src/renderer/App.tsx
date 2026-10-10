@@ -11,6 +11,10 @@ import { Attendance } from './screens/Attendance'
 import { Calendar } from './screens/Calendar'
 import { ComingSoon } from './screens/ComingSoon'
 import { DirtyDrivers } from './screens/DirtyDrivers'
+import { EsportsEvents } from './screens/EsportsEvents'
+import { EsportsPending } from './screens/EsportsPending'
+import { EsportsRoute } from './screens/EsportsRoute'
+import { EsportsTeams } from './screens/EsportsTeams'
 import { GamePicker } from './screens/GamePicker'
 import { GamesTiers } from './screens/GamesTiers'
 import { LeagueRoute, useLeague } from './screens/LeagueRoute'
@@ -26,7 +30,7 @@ import { Standings } from './screens/Standings'
 import { Teams } from './screens/Teams'
 
 /** League pages that have a real screen; the others still show "Coming in the next phase". */
-const IMPLEMENTED_PAGES: ReadonlySet<string> = new Set(['calendar', 'teams', 'standings', 'reports', 'penalties', 'dirty-drivers', 'attendance', 'signups'])
+const IMPLEMENTED_PAGES: ReadonlySet<string> = new Set(['calendar', 'teams', 'standings', 'reports', 'penalties', 'dirty-drivers', 'attendance', 'signups', 'esports'])
 
 /** A game's landing page: Formula 1 opens its league, every other game its esports team. */
 function GameIndex() {
@@ -87,6 +91,15 @@ export function App() {
                     .map((page) => (
                       <Route key={page} path={page} element={<ComingSoon page={page} />} />
                     ))}
+                </Route>
+                {/* The Esports team of every game: its own route group, which does NOT require the game to be enabled in Games & Tiers. */}
+                <Route path="g/:guildId/:game/esports" element={<EsportsRoute />}>
+                  <Route index element={<Navigate to="teams" replace />} />
+                  <Route path="teams" element={<EsportsTeams />} />
+                  <Route path="events" element={<EsportsEvents />} />
+                  <Route path="results" element={<EsportsPending page="results" />} />
+                  <Route path="attendance" element={<EsportsPending page="attendance" />} />
+                  <Route path="announcement" element={<EsportsPending page="announcement" />} />
                 </Route>
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Route>
