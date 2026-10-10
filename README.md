@@ -8,8 +8,8 @@ Scope so far: Discord login, server list, game picker with **Enable game**, and 
 **Overview**, **Games & Tiers** (tiers with live driver counts, sign-up panels), **Settings** (embed colour,
 footer, season; read-only up front for non-administrators) and **Announcement** (milestone 1), plus the
 Formula 1 league screens **Calendar**, **Teams** and **Standings** (milestone 2) and **Reports**, **Penalties**
-and **Dirty drivers** (milestone 3), all described below. Attendance, Sign-ups and the Esports team pages show
-"Coming in the next phase".
+and **Dirty drivers** (milestone 3) and **Attendance** and **Sign-ups** (milestone 4), all described below. Only the
+Esports team pages show "Coming in the next phase".
 Every call follows `docs/APP_API.md`, the contract copied from the backend repo.
 
 ### Formula 1 league (milestone 2)
@@ -83,12 +83,51 @@ Rules worth knowing:
   and offers **Copy**); an evidence image is rendered only when it is https **and** on Discord's CDN (the
   content-security policy allows no other image host), otherwise it is offered as a link.
 
+### Attendance and sign-ups (milestone 4)
+
+| Screen | What it does |
+| --- | --- |
+| Attendance | **Divisions**: regular and reserve drivers by name (a driver who left is marked), create or edit in a dialog with two member pickers (never an ID), an overlap badge. **Posts**: a table (filter by division and season, search, sort, "Load more"), a detail view with the present, absent and reserve lists by name and a Refresh button, and **Create attendance post** (division, season, round, circuit, optional description, channel). The result dialog shows only what the API returned (message id, channel) and the app stores nothing. |
+| Sign-ups | **Sign-ups**: a table (status, title, participants, close date) with search, filter and sort, **Create a sign-up** (title, optional description, panel channel, confirmation channel, optional close date), a detail view with **Close this sign-up** and the participants. **Settings**: the sign-up questions editor. |
+
+Rules worth knowing:
+
+- **A division is saved partially.** The API keeps a list that is left out of the request, so the app sends only the
+  list(s) you actually edited (the regular list can never be changed by editing the reserve list). After saving, an
+  `overlap` in the answer is shown by name: such a driver is marked Present when a post is created and is then refused
+  by the Present button in Discord (the command has no rule against it; it is stored as you set it).
+- **Only reading is possible for attendance itself**: the app cannot set, toggle or remove anyone's attendance, edit or
+  delete a post, delete a division, find a post's channel or link to a post later. (The result of *creating* a post does
+  contain the channel, so the dialog offers a link from that answer only.) Drivers use the buttons in Discord.
+- **Post text is posted as typed**: season, round, circuit and description are not escaped, so Discord formatting characters
+  render there (the form says so).
+- **Creating a post or a sign-up is sent once.** After a lost answer (timeout, dropped connection, 5xx) the form locks,
+  says the message may already be in Discord, never offers the same data again and offers a refresh of the list.
+- **Questions editor.** Saving needs the Administrator permission (`can_edit` or `403 admin_required` make the form
+  read-only with an explanation). The limits come from the server (2 questions of 45 characters): no comma, unique, no
+  two questions that start with the same 45 characters (the question is the key of the answer). *Reset to defaults*
+  empties the list (that is how the server restores its 6 defaults) and saves nothing until Save.
+- **Creating a sign-up** explains the confirmation channel: it is stored by *name*, found (ignoring emoji and capitals) or
+  created by the bot when the first driver signs up. `bot_cannot_post_confirmations`, `bot_missing_manage_channels` and
+  `confirmation_channel_ambiguous` each say what to fix and that nothing was posted.
+- **Closing a sign-up** has a confirm dialog: the panel is disabled, new sign-ups are refused, and there is no reopen,
+  edit or delete. Removing a participant names the person and says it cannot be undone (staff can also remove someone
+  who left the server). The list is read again afterwards; no row number is relied on.
+- **Not offered, because the API has no endpoint**: signing someone up, editing their answers, per-sign-up custom
+  questions, reopening, editing or deleting a sign-up.
+
+**Privacy of participants.** Their answers (first name, nationality, age ...) are personal data. They exist only in the
+renderer's memory: never written to the settings file, a log, a cache or browser storage, cleared when the screen is left
+or the server is switched, rendered as plain text, and the app has no export. `src/main/privacy.test.ts` guards this: only
+the settings and token stores may write files, the renderer may not use browser storage, and nothing that handles
+participants may log. The mock's participants are obviously fake (*Fake Driver 007*, *Testland*, age 99).
+
 ## Scripts
 
 | Command | What it does |
 | --- | --- |
 | `npm run dev` | Electron + hot reload (electron-vite dev) |
-| `npm run dev:mock` | Renderer only, in a normal browser (the port is printed, usually http://localhost:5174) with a **fake, stateful** bridge (no Discord login). Query `?scenario=signedout\|denied\|expired\|empty\|error\|slow\|nogames\|notadmin\|norounds\|nobotperms\|nofia\|lostresults` shows other states: `nogames` = no game enabled, `notadmin` = staff but not Administrator (settings are read-only, admin-level roles return `role_too_privileged`), `norounds` = no calendar yet, `nobotperms` = the bot lacks permissions, `nofia` = no FIA role (`fia_required`), `lostresults` = every results request loses its answer, `noledger` = the server's results ledger cannot be read (the local fallback is used), and for milestone 3 `noreports`, `nopenaltyconfig` (penalty rules never set up: `penalty_not_configured`), `nostaff` (every report, penalty and dirty-driver call answers 403), `lostdecisions` (every decision is applied, then its answer is lost) and `nodirty`. The headers of `src/renderer/mock/installMock.ts`, `f1Mock.ts` and `stewardMock.ts` list the sample data and the hooks (60 reports in Midnight GT, a report decided in Discord meanwhile, a report whose thread is gone, a description containing *points-fail* or *timeout*, a driver one point below a ban threshold, the channels `#bot-locked` and `#staff-only-hidden`, a circuit named *late-duplicate*, ...). |
+| `npm run dev:mock` | Renderer only, in a normal browser (the port is printed, usually http://localhost:5174) with a **fake, stateful** bridge (no Discord login). Query `?scenario=signedout\|denied\|expired\|empty\|error\|slow\|nogames\|notadmin\|norounds\|nobotperms\|nofia\|lostresults` shows other states: `nogames` = no game enabled, `notadmin` = staff but not Administrator (settings are read-only, admin-level roles return `role_too_privileged`), `norounds` = no calendar yet, `nobotperms` = the bot lacks permissions, `nofia` = no FIA role (`fia_required`), `lostresults` = every results request loses its answer, `noledger` = the server's results ledger cannot be read (the local fallback is used), and for milestone 3 `noreports`, `nopenaltyconfig` (penalty rules never set up: `penalty_not_configured`), `nostaff` (every report, penalty and dirty-driver call answers 403), `lostdecisions` (every decision is applied, then its answer is lost) and `nodirty`, and for milestone 4 `nodivisions`, `nosignups`, `noconfirmperms` (`bot_cannot_post_confirmations`), `nomanagechannels` (`bot_missing_manage_channels`), `ambiguousconfirm` (`confirmation_channel_ambiguous`) and `lostcreates` (creating a post or a sign-up is applied, then its answer is lost; `notadmin` makes the questions read-only). The headers of `src/renderer/mock/installMock.ts`, `f1Mock.ts` and `stewardMock.ts` and `attendanceMock.ts` list the sample data and the hooks (60 reports in Midnight GT, a report decided in Discord meanwhile, a report whose thread is gone, a description containing *points-fail* or *timeout*, a driver one point below a ban threshold, the channels `#bot-locked` and `#staff-only-hidden`, a circuit named *late-duplicate*, ...). |
 | `npm run typecheck` / `npm run lint` / `npm test` | tsc (strict), ESLint, Vitest |
 | `npm run build` | typecheck + bundle; fails if the mock flag is on or mock code is in `out/` |
 | `npm run dist` | `build` + Windows installer (NSIS) and portable `.exe` in `dist/` |
