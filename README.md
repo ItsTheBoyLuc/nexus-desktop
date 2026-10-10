@@ -4,18 +4,43 @@ Windows desktop app for Discord league owners and staff. Electron + React + Type
 with electron-builder. It talks to the Nexus bot's token API (`/api/app/v1`); all Discord access
 goes through that backend, so this app holds **no secrets**.
 
-Scope so far (milestone 1): Discord login, server list, game picker with **Enable game**, and the
-server-level screens **Overview**, **Games & Tiers** (tiers with live driver counts, sign-up panels),
-**Settings** (embed colour, footer, season) and **Announcement**. The League (Formula 1 only) and
-Esports team modules are visible in the sidebar and show "Coming in the next phase". Every call follows
-`docs/APP_API.md`, the contract copied from the backend repo.
+Scope so far: Discord login, server list, game picker with **Enable game**, and the server-level screens
+**Overview**, **Games & Tiers** (tiers with live driver counts, sign-up panels), **Settings** (embed colour,
+footer, season; read-only up front for non-administrators) and **Announcement** (milestone 1), plus the
+Formula 1 league screens **Calendar**, **Teams** and **Standings** (milestone 2, described below). Reports,
+Penalties, Dirty drivers, Attendance, Sign-ups and the Esports team pages show "Coming in the next phase".
+Every call follows `docs/APP_API.md`, the contract copied from the backend repo.
+
+### Formula 1 league (milestone 2)
+
+| Screen | What it does |
+| --- | --- |
+| Calendar | Rounds with date, time, flag and event type (Normal Race, Sprint Weekend, Full Qualifying), TBD states, search/sort/filter. Add, edit and delete a round (validated like the backend; numbers are shown as returned, a deleted round leaves a gap). "Next race" card. **Post to Discord** with a searchable channel picker; **Update posted calendar** is offered only while this app remembers the message id, and falls back to *Post new* when Discord says the message is gone. |
+| Teams | Team list (colour swatch, abbreviation) and detail with roster, driver numbers and driver stats. Create a team (Discord role + private channel), add a driver with a member search (no IDs), remove a driver (the confirm dialog names the team role and says the points remain). Teams cannot be edited or deleted: the API has no endpoint. |
+| Standings | WDC and WCC tables as the API returns them, **Enter race results**, and the **points system** editor (P1 to P20, pole, fastest lap). No season selector and no "reset to defaults": the API offers neither a season parameter nor a documented defaults list. |
+
+Rules worth knowing:
+
+- **Recording a race adds its points every time.** The server keeps running totals only and cannot detect a
+  repeat. The app keeps a local ledger (server, season, round, circuit, time) and warns, with *Cancel* as the
+  default focus, before the same server + season + round is recorded again. The ledger only knows races
+  recorded **in this app on this computer**; results entered through Discord commands or on another device
+  are unknown to it (the form says so permanently).
+- After a timeout or a lost answer on the results request the form locks and only **Refresh standings** is
+  offered: the results may already be recorded and are never offered for sending again.
+- Recording results and saving the points system need the FIA role or Administrator (`403 fia_required`);
+  after a refusal both actions are disabled until *Check again*, the tables stay readable.
+- Bot permission errors (`bot_missing_manage_roles`, `bot_missing_manage_channels`, `bot_cannot_send`) name
+  the missing permission; nothing is created in that case.
+- Not offered, because the API does not expose them: team edit/delete, `/league update-points`, the
+  in-progress `/f1 calendar` wizard, listing or reversing recorded races.
 
 ## Scripts
 
 | Command | What it does |
 | --- | --- |
 | `npm run dev` | Electron + hot reload (electron-vite dev) |
-| `npm run dev:mock` | Renderer only, in a normal browser (the port is printed, usually http://localhost:5174) with a **fake, stateful** bridge (no Discord login). Query `?scenario=signedout\|denied\|expired\|empty\|error\|slow\|nogames\|notadmin` shows other states: `nogames` = no game enabled, `notadmin` = staff but not Administrator (settings save returns 403, admin-level roles return `role_too_privileged`). The header of `src/renderer/mock/installMock.ts` lists the sample data and the "lost answer" hooks. |
+| `npm run dev:mock` | Renderer only, in a normal browser (the port is printed, usually http://localhost:5174) with a **fake, stateful** bridge (no Discord login). Query `?scenario=signedout\|denied\|expired\|empty\|error\|slow\|nogames\|notadmin\|norounds\|nobotperms\|nofia\|lostresults` shows other states: `nogames` = no game enabled, `notadmin` = staff but not Administrator (settings are read-only, admin-level roles return `role_too_privileged`), `norounds` = no calendar yet, `nobotperms` = the bot lacks permissions, `nofia` = no FIA role (`fia_required`), `lostresults` = every results request loses its answer. The headers of `src/renderer/mock/installMock.ts` and `f1Mock.ts` list the sample data (8 rounds, 24 rounds, a deleted calendar message, a team without drivers, a round already in the ledger, a circuit named *ambiguous* or *timeout*, ...). |
 | `npm run typecheck` / `npm run lint` / `npm test` | tsc (strict), ESLint, Vitest |
 | `npm run build` | typecheck + bundle; fails if the mock flag is on or mock code is in `out/` |
 | `npm run dist` | `build` + Windows installer (NSIS) and portable `.exe` in `dist/` |
@@ -42,12 +67,18 @@ src/shared    Types, IPC channel names, CSP and the validation shared by both si
 /g/:guild/:game/:page          League pages (Formula 1 only) and Esports team: the game must be enabled
 ```
 
-### Sign-up panels and the settings file
+### What the app remembers (the settings file)
 
-`userData/settings.json` holds the last server and game and the **message id of every sign-up panel this
-app posted** (the API cannot look panels up). Only the main process writes the ids, and only after the API
-confirmed the outcome (`src/main/panelService.ts`); the renderer cannot add or wipe them. "Refresh panel"
-is offered only when an id is stored; a panel that was deleted in Discord is forgotten automatically.
+`userData/settings.json` holds the last server and game and three things the API cannot tell the app:
+
+- the **message id of every sign-up panel** it posted (`panels`),
+- the **message id of the calendar** it posted, per server (`calendarPosts`),
+- a **ledger of recorded races** (`ledger`: server, season, round, circuit, time).
+
+Only the main process writes them, and only after the API confirmed the outcome (`src/main/panelService.ts`,
+`src/main/f1Service.ts`); the renderer cannot add or wipe them, and a timeout, a lost answer or a refusal
+writes nothing. "Refresh panel" and "Update posted calendar" are offered only when an id is stored; a message
+that was deleted in Discord is forgotten automatically.
 
 ### Writes
 
