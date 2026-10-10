@@ -146,3 +146,13 @@ export function describeWriteError(error: unknown, what: string): string {
   const text = describeError(error)
   return mayHaveSucceeded(error) ? `${text} ${what} may already have happened, so refresh and check before you try again.` : text
 }
+
+/** What a screen shows after a failed write: the text, and whether the write may still have happened (then a refresh is offered). */
+export interface WriteProblem {
+  text: string
+  uncertain: boolean
+}
+
+export function writeProblem(error: unknown, what: string): WriteProblem {
+  return { text: describeWriteError(error, what), uncertain: mayHaveSucceeded(error) }
+}

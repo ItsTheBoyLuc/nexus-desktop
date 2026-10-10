@@ -26,6 +26,12 @@ interface SearchSelectProps {
   disabled?: boolean
   /** Text for an empty list (nothing loaded or nothing matches). */
   emptyText?: string
+  /** Called with what the user types (and with "" when the list closes): lets a parent fetch matches from the server. */
+  onQueryChange?: (query: string) => void
+  /** False when the parent already filtered `options` (server-side search): they are all shown as they are. Default true. */
+  filterLocally?: boolean
+  /** A search is running: shown in the empty list. */
+  loading?: boolean
 }
 
 /**
@@ -33,7 +39,7 @@ interface SearchSelectProps {
  * Discord role or channel: they search by name and never type an ID. Keyboard: type to filter,
  * Up/Down to move, Enter to choose, Escape to close.
  */
-export function SearchSelect({ label, value, options, onChange, placeholder = 'Search', hint, error, disabled, emptyText = 'Nothing found' }: SearchSelectProps) {
+export function SearchSelect({ label, value, options, onChange, placeholder = 'Search', hint, error, disabled, emptyText = 'Nothing found', onQueryChange, filterLocally = true, loading = false }: SearchSelectProps) {
   const id = useId()
   const listId = `${id}-list`
   const inputRef = useRef<HTMLInputElement>(null)
@@ -42,13 +48,14 @@ export function SearchSelect({ label, value, options, onChange, placeholder = 'S
   const [active, setActive] = useState(0)
 
   const selected = options.find((option) => option.value === value)
-  const visible = options.filter((option) => matchesQuery([option.label, option.description], query))
+  const visible = filterLocally ? options.filter((option) => matchesQuery([option.label, option.description], query)) : options
   const activeOption = visible[Math.min(active, Math.max(visible.length - 1, 0))]
   const describedBy = [hint ? `${id}-hint` : '', error ? `${id}-error` : ''].filter(Boolean).join(' ') || undefined
 
   const close = (): void => {
     setOpen(false)
     setQuery('')
+    onQueryChange?.('')
   }
   const choose = (option: SearchOption | undefined): void => {
     if (!option || option.disabled) return
@@ -123,6 +130,7 @@ export function SearchSelect({ label, value, options, onChange, placeholder = 'S
           onBlur={close}
           onChange={(event) => {
             setQuery(event.target.value)
+            onQueryChange?.(event.target.value)
             setActive(0)
             setOpen(true)
           }}
@@ -131,7 +139,9 @@ export function SearchSelect({ label, value, options, onChange, placeholder = 'S
         <ChevronDown className="select-wrap__icon" size={16} aria-hidden="true" />
         {open ? (
           <ul id={listId} role="listbox" aria-label={label} className="search-list">
-            {visible.length === 0 ? <li className="search-list__empty">{options.length === 0 ? emptyText : `No match for "${query}"`}</li> : null}
+            {visible.length === 0 ? (
+              <li className="search-list__empty">{loading ? 'Searching...' : options.length === 0 || !filterLocally ? emptyText : `No match for "${query}"`}</li>
+            ) : null}
             {visible.map((option, index) => (
               <li
                 key={option.value}

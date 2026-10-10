@@ -7,6 +7,7 @@ import { RequireAuth } from './layout/AppShell'
 import { describeError } from './lib/errors'
 import { gameHomePage, LEAGUE_PAGES, routes } from './lib/routes'
 import { Announcement } from './screens/Announcement'
+import { Calendar } from './screens/Calendar'
 import { ComingSoon } from './screens/ComingSoon'
 import { GamePicker } from './screens/GamePicker'
 import { GamesTiers } from './screens/GamesTiers'
@@ -63,9 +64,12 @@ export function App() {
                 </Route>
                 <Route path="g/:guildId/:game" element={<LeagueRoute />}>
                   <Route index element={<GameIndex />} />
-                  {[...LEAGUE_PAGES, 'esports' as const].map((page) => (
-                    <Route key={page} path={page} element={<ComingSoon page={page} />} />
-                  ))}
+                  <Route path="calendar" element={<Calendar />} />
+                  {[...LEAGUE_PAGES, 'esports' as const]
+                    .filter((page) => page !== 'calendar')
+                    .map((page) => (
+                      <Route key={page} path={page} element={<ComingSoon page={page} />} />
+                    ))}
                 </Route>
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Route>

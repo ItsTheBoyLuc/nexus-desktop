@@ -10,12 +10,14 @@ interface ModalProps {
   footer?: ReactNode
   /** When false, Escape and overlay clicks do nothing (e.g. while a request is in flight). */
   dismissible?: boolean
+  /** `lg` for dialogs with a table or a long form. */
+  size?: 'md' | 'lg'
 }
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
-export function Modal({ open, title, onClose, children, footer, dismissible = true }: ModalProps) {
+export function Modal({ open, title, onClose, children, footer, dismissible = true, size = 'md' }: ModalProps) {
   const titleId = useId()
   const dialogRef = useRef<HTMLDivElement>(null)
   const onCloseRef = useRef(onClose)
@@ -33,7 +35,8 @@ export function Modal({ open, title, onClose, children, footer, dismissible = tr
 
     const dialog = dialogRef.current
     const focusables = (): HTMLElement[] => (dialog ? Array.from(dialog.querySelectorAll<HTMLElement>(FOCUSABLE)) : [])
-    ;(focusables()[0] ?? dialog)?.focus()
+    // An element marked data-autofocus gets the initial focus (a dangerous action must not be the default); else the first control.
+    ;(dialog?.querySelector<HTMLElement>('[data-autofocus]:not([disabled])') ?? focusables()[0] ?? dialog)?.focus()
 
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.key === 'Escape' && dismissibleRef.current) {
@@ -74,7 +77,7 @@ export function Modal({ open, title, onClose, children, footer, dismissible = tr
         if (event.target === event.currentTarget && dismissible) onClose()
       }}
     >
-      <div ref={dialogRef} className="modal" role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}>
+      <div ref={dialogRef} className={size === 'lg' ? 'modal modal--lg' : 'modal'} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}>
         <div className="modal__header">
           <h2 id={titleId}>{title}</h2>
         </div>
