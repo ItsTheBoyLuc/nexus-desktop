@@ -4,11 +4,13 @@ Token-based API for the Nexus Windows desktop app. Implemented in `app_backend.p
 bot's Flask app. This file is the contract: **every registered route is listed here** (a unit test,
 `DocsComplete` in `scripts/test_app_api.py`, fails if a route is added without documenting it).
 
-**Status:** Auth + base (existing) and **M1 — Foundations, Games & tiers, Server settings, Overview**.
-M2–M5 (calendar, teams, standings, reports, penalties, attendance, sign-ups, esports) are not built yet.
+**Status:** Auth + base, **M1 — Foundations, Games & tiers, Server settings, Overview** and
+**M2 — F1 league core (calendar, teams and drivers, standings, points system)**.
+M3–M5 (reports, penalties, attendance, sign-ups, esports) are not built yet.
 
 Contents: [Conventions](#conventions) · [Auth](#auth) · [Base](#base-endpoints) · [Pickers](#pickers) ·
-[Overview](#overview) · [Server settings](#server-settings) · [Games & tiers](#games--tiers) · [Sync notes](#sync-with-discord)
+[Overview](#overview) · [Server settings](#server-settings) · [Games & tiers](#games--tiers) · [F1 league](#f1-league) ·
+[Sync notes](#sync-with-discord)
 
 ---
 
@@ -72,9 +74,10 @@ Token bucket, per user. Exceeding it returns `429 rate_limited` with a `Retry-Af
 ### Audit log
 
 Every successful write is appended (newest first, capped at 500) to the `data/app_activity_log.json`
-store as `{ts, user_id, username, guild_id, action, detail}`. Actions in M1: `announcement.post`,
+store as `{ts, user_id, username, guild_id, action, detail}`. Actions: `announcement.post`,
 `settings.update`, `league.game.create|enable|disable|delete`, `league.tier.create|update|delete`,
-`league.panel.post|refresh`.
+`league.panel.post|refresh`, `f1.calendar.rename|post|edit_post`, `f1.calendar.round.create|update|delete`,
+`f1.team.create`, `f1.driver.add|remove`, `f1.results.record`, `f1.points_system.update`.
 
 ---
 
@@ -290,12 +293,14 @@ Staff. Response `200`:
 
 ```json
 { "embed_color": "#FF3333", "footer_name": "Nexus", "season_number": null,
-  "effective_season": 1, "season_source": "default" }
+  "effective_season": 1, "season_source": "default", "can_edit": false }
 ```
 
 * `embed_color` — `#RRGGBB` upper-case; default `#FF3333` when never set.
 * `footer_name` — shown in every embed footer; default `Nexus`.
 * `season_number` — the value stored in settings (`/server settings` → *Default season number*), `null` if never set.
+* `can_edit` — `true` when the caller is an **Administrator** of the server, i.e. may `PUT /settings`. Evaluated live on every call; use it to show
+  the form read-only up front instead of waiting for a `403 admin_required`.
 
 #### Season precedence
 
@@ -319,7 +324,7 @@ Request:
 | `footer_name` | string, 0–50 chars, single line; empty/blank resets to `Nexus` | `bot_footer` |
 | `season_number` | integer 1–99999 (not a string) | `season_number` |
 
-Response `200`: the same object as `GET /settings` after the change. Other keys in the guild's settings (penalty thresholds, sign-up questions, …) are never touched.
+Response `200`: the same object as `GET /settings` after the change (`can_edit` is always `true` here). Other keys in the guild's settings (penalty thresholds, sign-up questions, …) are never touched.
 
 Errors: `403 admin_required`, `400 invalid_embed_color | invalid_footer_name | invalid_season_number | no_changes | invalid_request`.
 
@@ -437,6 +442,267 @@ Nothing is recorded in storage if posting fails.
 
 ---
 
+## F1 league
+
+Everything under `/guilds/{guild_id}/f1/…` works on the same data as the F1 slash commands
+(`f1_calendar.json`, `teams.json`, `points_system.json`) through the same helpers, so a change made in Discord shows up
+here and vice versa. All endpoints need staff; two additionally need the **FIA role or Administrator**
+(`403 fia_required`): *record race results* and *set the points system*, because `/f1 standings` and `/league points-setup`
+require the FIA role in Discord.
+
+Where the API is **stricter than the commands** (the commands accept free text in a Discord modal): event types must be one of
+three exact values, dates must be real `DD/MM/YYYY` dates (or `TBD`), team names cannot repeat (the command silently overwrote the
+team record and orphaned its role), and results are matched through the same function but ambiguous names are refused.
+
+Optional posting: several writes accept a channel to announce in (`announce_channel_id`, or `channel_id` for race results). The embed
+is **the same builder the command uses**. The data is written first; if only the post fails the response is still successful and
+`announce_error` carries the code (`bot_cannot_send`, `discord_error`, …).
+
+### Calendar
+
+```json
+// calendar
+{ "name": "2026 Season", "setup_in_progress": false,
+  "rounds": [ { "round": 1, "name": "Australian GP", "date": "15/03/2026", "time": "19:30", "flag": "AU", "event_type": "Normal Race" } ] }
+```
+
+* `date` is `DD/MM/YYYY` or `TBD`; `time` is `HH:MM` (24 h) or `""` (shown as TBD); `flag` is up to 8 characters (a flag emoji);
+  `event_type` is `Normal Race`, `Sprint Weekend` or `Full Qualifying`.
+* **Numbering:** like `/f1 calendar`, rounds are numbered 1, 2, 3 … A new round gets the highest number + 1. Removing a round
+  leaves a **gap** (the others keep their numbers, as `/f1 calendar-remove-round` does). A gap can be filled by passing `round`.
+* At most **25 rounds** (the command's limit).
+* `setup_in_progress: true` means someone is in the middle of `/f1 calendar` in Discord; finishing that setup replaces all rounds.
+
+### GET /guilds/{guild_id}/f1/calendar
+
+Response `200`: the calendar above (an empty calendar is `{"name": "F1 Season Calendar", "rounds": [], "setup_in_progress": false}`).
+Rounds are sorted by number. Calendars saved with the legacy `races` key are read transparently.
+
+### PATCH /guilds/{guild_id}/f1/calendar
+
+Rename the calendar. Request: `{ "name": "2027 Season" }` (1–100 chars, single line). Response `200`: the calendar.
+
+Errors: `400 invalid_name | invalid_request`, `404 calendar_not_found`.
+
+### POST /guilds/{guild_id}/f1/calendar/rounds
+
+Add a round (creates the calendar if there is none).
+
+```json
+{ "name": "Australian GP", "date": "15/03/2026", "time": "19:30", "flag": "AU", "event_type": "Sprint Weekend",
+  "round": 3, "calendar_name": "2026 Season" }
+```
+
+`name` (1–100) and `date` are required; `time`, `flag`, `event_type` (default `Normal Race`) and `round` (1–99) are optional;
+`calendar_name` is used only when the calendar does not exist yet (default `F1 Season Calendar`).
+
+Response `201`: `{ "round": <round>, "calendar": <calendar> }`.
+
+Errors: `400 invalid_name | invalid_date | invalid_time | invalid_flag | invalid_event_type | invalid_round | invalid_request`,
+`409 round_exists | too_many_rounds`.
+
+### PATCH /guilds/{guild_id}/f1/calendar/rounds/{round_num}
+
+Edit a round; send any of `name`, `date`, `time`, `flag`, `event_type`. `/f1 calendar-edit` changes name, date, time and flag only;
+`event_type` can additionally be changed here (it is the same stored field). Response `200`: `{ "round": <round>, "calendar": <calendar> }`.
+
+Errors: `400 invalid_name | invalid_date | invalid_time | invalid_flag | invalid_event_type | no_changes | invalid_request`,
+`404 calendar_not_found | round_not_found`.
+
+### DELETE /guilds/{guild_id}/f1/calendar/rounds/{round_num}
+
+Response `200`: `{ "ok": true, "calendar": <calendar> }`. The other rounds keep their numbers.
+
+Errors: `404 calendar_not_found | round_not_found`.
+
+### POST /guilds/{guild_id}/f1/calendar/post
+
+Posts the combined calendar embed in a channel (the embed `/f1 calendar` and `/f1 calendar-view` post: one field per 10 rounds,
+continuation fields titled "📅 Races (cont.)", footer "Calendar set by <you> · N rounds · <server footer> · <time>"), or edits a
+previous post in place.
+
+Request: `{ "channel_id": "777…", "message_id": "999…" }` — `message_id` is optional: without it a new message is posted,
+with it that message (it must be a message the bot posted in that channel) is edited. Keep the returned `message_id` to update the
+calendar later; the server does not store it.
+
+Response `201` (posted) or `200` (edited): `{ "ok": true, "message_id": "999…", "channel_id": "777…", "refreshed": false }`.
+
+Errors: `400 invalid_channel | invalid_message_id | not_a_bot_message`, `404 calendar_not_found | channel_not_found | message_not_found`,
+`403 bot_cannot_send | forbidden`, `502 discord_error`, `504 bot_timeout`.
+
+### GET /guilds/{guild_id}/f1/next-race
+
+What `/f1 next-race` shows: the first round dated today or later (same picker function); if every round is in the past, the **last**
+round with `upcoming: false`.
+
+```json
+{ "calendar_name": "2026 Season", "race": <round>, "upcoming": true,
+  "countdown_hours": 121, "countdown": { "days": 5, "hours": 1 } }
+```
+
+`countdown_hours` / `countdown` are `null` when `upcoming` is false. Errors: `404 calendar_not_found`.
+
+### Teams and drivers
+
+```json
+// team
+{ "name": "Red Racing", "abbreviation": "RED", "color": "#FF0000",
+  "role_id": "910…" | null, "role_name": "Red Racing" | null, "channel_id": "930…" | null, "channel_name": "red-racing" | null,
+  "points": 80,
+  "drivers": [ { "user_id": "2001", "username": "alice", "display_name": "Ally", "number": 7, "points": 40, "wins": 1, "podiums": 2 } ] }
+```
+
+`points` is the sum of the team's drivers' points (constructor points are never stored). Drivers are ordered numbered-first by number,
+like `/league team-info`. `role_name` / `channel_name` are `null` if the role or channel no longer exists.
+
+Team names are used in URLs (URL-encode them); a team name is matched case-insensitively. Names created through the API cannot contain
+`/` or `\`; a team created in Discord with such a character appears in the list but cannot be fetched by name.
+
+### GET /guilds/{guild_id}/f1/teams
+
+Response `200`: `{ "teams": [ <team> ] }`.
+
+### GET /guilds/{guild_id}/f1/teams/{team_name}
+
+Response `200`: `{ "team": <team> }` (`/league team-info`). Errors: `404 team_not_found`.
+
+### POST /guilds/{guild_id}/f1/teams
+
+Creates a team exactly like `/league create-team`: a Discord **role** in the team colour, a **private text channel** in the "Teams"
+category (created if missing; hidden from @everyone, visible to the team role and to the `FIA` / `STAFF` roles), and the `teams.json`
+entry. If the channel cannot be created the role is removed again.
+
+Request: `{ "name": "Red Racing", "color": "#FF0000", "abbreviation": "RED", "announce_channel_id": "777…" }`
+
+* `name` 1–50 characters, single line, no `/` or `\`; `color` exactly `#RRGGBB`; `abbreviation` 1–6 letters/digits (stored upper-case);
+  `announce_channel_id` optional: also posts the "Team Created" embed there.
+
+Response `201`: `{ "team": <team>, "announce_error": null }`.
+
+The bot needs **Manage Roles** and **Manage Channels** in the server, otherwise nothing is created.
+
+Errors: `400 invalid_name | invalid_color | invalid_abbreviation | invalid_channel | invalid_request`, `404 channel_not_found`,
+`409 team_exists`, `403 bot_missing_manage_roles | bot_missing_manage_channels | bot_cannot_send | forbidden`, `502 discord_error`, `504 bot_timeout`.
+
+### POST /guilds/{guild_id}/f1/teams/{team_name}/drivers
+
+Adds a driver like `/league add-driver`: assigns the team role, adds the roster entry (replacing an existing entry of the same user in
+that team) and creates/refreshes the driver's stats entry (existing points are kept).
+
+Request — identify the driver by **exactly one** of:
+
+* `user_id` — a Discord user ID (use the member search; preferred), or
+* `username` — resolved like the command does: exact username, global name, nickname or ID, in the member cache and then through Discord.
+
+Optional: `number` (0–999 or `null`), `announce_channel_id` (posts the "Driver Added" embed).
+
+Response `201`: `{ "team": <team>, "user_id": "2001", "announce_error": null }`.
+
+The role is assigned **before** any data is written, so a refusal by Discord leaves the data unchanged. A team role with admin-level
+permissions can only be handed out by an Administrator.
+
+Errors: `400 invalid_driver | invalid_user_id | invalid_username | invalid_number | invalid_channel | invalid_request`,
+`404 team_not_found | member_not_found | role_not_found | channel_not_found`,
+`403 bot_missing_manage_roles | bot_cannot_assign_role | role_not_assignable | role_too_privileged | forbidden`, `504 bot_timeout`.
+
+### DELETE /guilds/{guild_id}/f1/teams/{team_name}/drivers/{user_id}
+
+Removes a driver like `/league remove-driver`: the team role is removed, the roster entry is dropped, and the driver's stats are kept
+with their team set to `"—"`. Optional JSON body `{ "announce_channel_id": "777…" }` posts the "Driver Removed" embed.
+
+Response `200`: `{ "team": <team>, "role_removed": true, "member_in_server": true, "announce_error": null }`. If the member has left the
+server, the roster entry is still removed (`role_removed: false`, `member_in_server: false`) — the command cannot do that.
+
+Errors: `400 invalid_user_id | invalid_channel`, `404 team_not_found | driver_not_found | channel_not_found`,
+`403 bot_missing_manage_roles | bot_cannot_assign_role | forbidden`, `504 bot_timeout`.
+
+### GET /guilds/{guild_id}/f1/drivers/{user_id}
+
+What `/league driver-stats` shows, by user ID. Response `200`:
+
+```json
+{ "user_id": "2001", "username": "alice", "display_name": "Ally", "team": "Red Racing", "points": 40, "wins": 1, "podiums": 2, "number": 7 }
+```
+
+`team` is `"—"` for a driver who is on no team; `number` is `null` if they have none. Errors: `400 invalid_user_id`, `404 driver_not_found`.
+
+### Standings
+
+### GET /guilds/{guild_id}/f1/standings
+
+The World Drivers' and Constructors' Championships, computed by the same functions as `/f1 wdc` and `/f1 wcc` (most points first, ties keep
+their stored order, `gap` = points behind the leader).
+
+```json
+{ "drivers":      [ { "position": 1, "user_id": "2001", "username": "alice", "team": "Red Racing", "points": 40, "wins": 1, "podiums": 2, "gap": 0 } ],
+  "constructors": [ { "position": 1, "team": "Red Racing", "points": 80, "drivers": 2, "gap": 0 } ] }
+```
+
+### POST /guilds/{guild_id}/f1/standings/results
+
+Records one race like `/f1 standings` (**FIA role or Administrator**): the points of each position (from the points system, below),
++ the fastest-lap bonus (not for the winner) and the pole bonus are added to the drivers' running totals, wins and podiums are counted.
+Constructor points follow automatically (they are the sum of their drivers).
+
+```json
+{ "season": 5, "round": 3, "circuit": "Zandvoort",
+  "results": ["alice", { "user_id": "2002" }, "carol_x"],
+  "fastest_lap": "carol_x", "pole": { "user_id": "2001" },
+  "channel_id": "777…" }
+```
+
+* `season` (≤ 20 chars), `round` (≤ 10), `circuit` (≤ 60): text or numbers; they only form the title "Season 5 Round 3 — Zandvoort".
+* `results`: 1–20 drivers **in finishing order** (position = index + 1). Each is a driver name (1–100 chars) or `{ "user_id": "…" }`.
+  Names are matched exactly like the command: against the driver's stored username, else a roster display name (case-insensitive).
+  Drivers that are not found score nothing and are returned in `not_found`; the others are still recorded.
+* `fastest_lap`, `pole`: optional, a name or `{ "user_id" }`; it must be one of the drivers in `results`. The command matches these
+  names by substring; if a name would match more than one driver in `results` the request is refused (`400 ambiguous_name`).
+* `channel_id`: optional; when given, the three embeds `/f1 standings` posts (results, WDC, WCC) are posted there.
+
+Response `200`:
+
+```json
+{ "race_title": "Season 5 Round 3 — Zandvoort",
+  "results": [ { "position": 1, "name": "alice", "points": 25, "matched": true } ],
+  "not_found": [],
+  "standings": { "drivers": [ … ], "constructors": [ … ] },
+  "posted": { "channel_id": "777…", "message_ids": ["…", "…", "…"] } | null,
+  "announce_error": null }
+```
+
+> **Recording the same race twice adds its points twice.** The data stores only running totals per driver, not per-race results
+> (neither the command nor the API can tell that a race was already recorded), and the schema is not extended for it. The app should
+> ask for confirmation before recording and should not offer "record again". `409 results_already_recorded` therefore does not exist.
+
+Errors: `403 fia_required | forbidden`, `400 invalid_season | invalid_round | invalid_circuit | invalid_results | invalid_fastest_lap |
+invalid_pole | fastest_lap_not_in_results | pole_not_in_results | ambiguous_name | invalid_channel | invalid_request`,
+`404 channel_not_found`, `403 bot_cannot_send`, `502 discord_error`, `504 bot_timeout`. (A failed post never undoes the recorded points:
+see `announce_error`.)
+
+### GET /guilds/{guild_id}/f1/points-system
+
+```json
+{ "points": [25, 18, 15, 12, 10, 8, 6, 4, 2, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "pole": 0, "fastest_lap": 1, "is_default": true }
+```
+
+Always 20 entries (P1 first). `is_default: true` means nothing has been saved and the built-in defaults apply (what the commands use).
+
+### PUT /guilds/{guild_id}/f1/points-system
+
+Sets the points system like `/league points-setup` (**FIA role or Administrator**).
+
+Request: `{ "points": [25, 18, 15], "pole": 1, "fastest_lap": 2, "announce_channel_id": "777…" }`
+
+* `points`: 1–20 whole numbers 0–1000 (P1 first; the rest are filled with 0). `pole` and `fastest_lap`: whole numbers 0–1000; when
+  omitted they default to `0` and `1` like the command. `announce_channel_id` optional: posts the "Points System Updated" embed.
+
+Response `200`: the same object as the GET plus `announce_error`.
+
+Errors: `403 fia_required | forbidden`, `400 invalid_points | invalid_pole | invalid_fastest_lap | invalid_channel | invalid_request`,
+`404 channel_not_found`, `403 bot_cannot_send`.
+
+---
+
 ## Sync with Discord
 
 * The app writes the **same files and JSON shapes** as the slash commands / dashboard, through the same locked read-modify-write helpers.
@@ -450,3 +716,15 @@ Nothing is recorded in storage if posting fails.
 * **Creating the Discord role** for a tier — pick an existing role (`GET /roles`); creating roles is not part of the league commands.
 * **Editing a game's label/category** — the dashboard cannot either (only `active`); delete and re-create.
 * **Finding a panel message you did not post through the app** — the data store has no message IDs, so *refresh* needs the `message_id` returned when the panel was posted.
+
+### Things that cannot be done through the API (M2)
+
+* **No per-race results are stored**, so a race cannot be recorded "idempotently", and recorded races cannot be listed or reversed.
+  Recording twice adds twice (see *Record results*).
+* **`/league update-points`** (the older command with a hard-coded points table that ignores the configured points system) is not
+  exposed: `POST /f1/standings/results` is the `/f1 standings` flow, which uses the points system. Both write the same `driver_points`.
+* **Deleting a team** — there is no slash command for it, so there is no endpoint.
+* **Editing a team's name, colour or abbreviation** — no slash command either.
+* **The in-progress `/f1 calendar` wizard** (calendar name + number of rounds, then one round at a time) is a Discord conversation;
+  the API adds, edits and removes rounds directly instead. `setup_in_progress` tells you when a wizard is open.
+
