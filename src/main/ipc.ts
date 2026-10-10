@@ -1,6 +1,22 @@
 import { BrowserWindow, ipcMain } from 'electron'
 import type { IpcMainInvokeEvent } from 'electron'
-import { parseGameInput, parsePanelRequest, parseSettingsInput, parseTierCreateInput, parseTierUpdateInput } from '../shared/inputs'
+import {
+  parseAddDriverInput,
+  parseCalendarPostRequest,
+  parseGameInput,
+  parseMemberSearchQuery,
+  parsePanelRequest,
+  parsePointsSystemInput,
+  parseResultsInput,
+  parseRoundCreateInput,
+  parseRoundNumber,
+  parseRoundPatch,
+  parseSettingsInput,
+  parseTeamInput,
+  parseTeamPathName,
+  parseTierCreateInput,
+  parseTierUpdateInput
+} from '../shared/inputs'
 import type { Parsed } from '../shared/inputs'
 import { IPC } from '../shared/ipc'
 import type { ApiErrorInfo, ApiStatus, IpcResult } from '../shared/types'
@@ -10,6 +26,7 @@ import type { AuthService } from './auth'
 import { openExternalChecked } from './external'
 import { log } from './log'
 import type { NexusApi } from './nexusApi'
+import { postCalendarAndRemember, recordResultsAndLog } from './f1Service'
 import { deleteGameAndForget, deleteTierAndForget, postPanelAndRemember } from './panelService'
 import type { SettingsStore } from './settings'
 
@@ -138,6 +155,40 @@ export function registerIpc(deps: IpcDeps): void {
     withGuild(guildId, (id) =>
       postPanelAndRemember(deps.api, deps.settings, id, gameKeyOf(gameKey), tierKeyOf(tierKey), valid(parsePanelRequest(input)))
     )
+  )
+
+  // F1 league (milestone 2). Same rule: every argument is re-checked here before it can reach the API.
+  const userIdOf = (value: unknown): string => (isValidSnowflake(value) ? value : rejectInput('That member ID is not valid.'))
+
+  handle(IPC.apiMembers, (guildId, query) => withGuild(guildId, (id) => deps.api.members(id, valid(parseMemberSearchQuery(query)))))
+  handle(IPC.apiCalendar, (guildId) => withGuild(guildId, (id) => deps.api.calendar(id)))
+  handle(IPC.apiRoundCreate, (guildId, input) => withGuild(guildId, (id) => deps.api.createRound(id, valid(parseRoundCreateInput(input)))))
+  handle(IPC.apiRoundUpdate, (guildId, round, patch) =>
+    withGuild(guildId, (id) => deps.api.updateRound(id, valid(parseRoundNumber(round)), valid(parseRoundPatch(patch))))
+  )
+  handle(IPC.apiRoundDelete, (guildId, round) => withGuild(guildId, (id) => deps.api.deleteRound(id, valid(parseRoundNumber(round)))))
+  handle(IPC.apiCalendarPost, (guildId, input) =>
+    withGuild(guildId, (id) => postCalendarAndRemember(deps.api, deps.settings, id, valid(parseCalendarPostRequest(input))))
+  )
+  handle(IPC.apiNextRace, (guildId) => withGuild(guildId, (id) => deps.api.nextRace(id)))
+
+  handle(IPC.apiTeams, (guildId) => withGuild(guildId, (id) => deps.api.teams(id)))
+  handle(IPC.apiTeamCreate, (guildId, input) => withGuild(guildId, (id) => deps.api.createTeam(id, valid(parseTeamInput(input)))))
+  handle(IPC.apiDriverAdd, (guildId, teamName, input) =>
+    withGuild(guildId, (id) => deps.api.addDriver(id, valid(parseTeamPathName(teamName)), valid(parseAddDriverInput(input))))
+  )
+  handle(IPC.apiDriverRemove, (guildId, teamName, userId) =>
+    withGuild(guildId, (id) => deps.api.removeDriver(id, valid(parseTeamPathName(teamName)), userIdOf(userId)))
+  )
+  handle(IPC.apiDriver, (guildId, userId) => withGuild(guildId, (id) => deps.api.driver(id, userIdOf(userId))))
+
+  handle(IPC.apiStandings, (guildId) => withGuild(guildId, (id) => deps.api.standings(id)))
+  handle(IPC.apiResultsRecord, (guildId, input) =>
+    withGuild(guildId, (id) => recordResultsAndLog(deps.api, deps.settings, id, valid(parseResultsInput(input))))
+  )
+  handle(IPC.apiPointsSystemGet, (guildId) => withGuild(guildId, (id) => deps.api.pointsSystem(id)))
+  handle(IPC.apiPointsSystemPut, (guildId, input) =>
+    withGuild(guildId, (id) => deps.api.savePointsSystem(id, valid(parsePointsSystemInput(input))))
   )
 
   handle(IPC.apiGetStatus, () => deps.getApiStatus())

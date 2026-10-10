@@ -65,6 +65,32 @@ export function describeError(error: unknown): string {
       return 'The panel message no longer exists in Discord (it was probably deleted).'
     case 'not_a_bot_message':
       return 'That message was not posted by Nexus, so it cannot be refreshed.'
+    case 'fia_required':
+      return 'Only members with the FIA role, or server administrators, can record race results or change the points system. Your account has the staff role only.'
+    case 'ambiguous_name':
+      return 'That name matches more than one driver in the results. Choose the driver from the list instead.'
+    case 'team_exists':
+      return 'A team with that name already exists. Team names must be unique, so choose another name.'
+    case 'team_not_found':
+      return 'That team no longer exists. It may have been removed in Discord. Refresh to see the current teams.'
+    case 'driver_not_found':
+      return 'That driver is no longer on this team. Refresh to see the current roster.'
+    case 'member_not_found':
+      return 'Discord could not find that member in the server. Search again and pick them from the list.'
+    case 'bot_missing_manage_roles':
+      return 'Nexus is missing the Manage Roles permission in this server, so nothing was created or changed. Give the Nexus role the Manage Roles permission in Discord and try again.'
+    case 'bot_missing_manage_channels':
+      return 'Nexus is missing the Manage Channels permission in this server, so nothing was created. Give the Nexus role the Manage Channels permission in Discord and try again.'
+    case 'bot_cannot_assign_role':
+      return "Discord would not let Nexus change that member's roles. Check that the Nexus role is above the team role and above the member's highest role."
+    case 'calendar_not_found':
+      return 'There is no calendar yet. Add a round to create it.'
+    case 'round_not_found':
+      return 'That round no longer exists. It may have been removed in Discord. Refresh to see the current calendar.'
+    case 'round_exists':
+      return 'That round number is already used. Leave the number empty to use the next free one.'
+    case 'too_many_rounds':
+      return 'The calendar already has the maximum of 25 rounds.'
     case 'bot_unavailable':
     case 'bot_timeout':
       return 'The Nexus bot is not responding right now. Try again in a moment.'
@@ -89,8 +115,30 @@ export function describeError(error: unknown): string {
  */
 export function mayHaveSucceeded(error: unknown): boolean {
   if (!(error instanceof UiError)) return false
-  const { kind, mayHaveBeenSent } = error.info
-  return kind === 'timeout' || (kind === 'network' && mayHaveBeenSent !== false)
+  const { kind, code, mayHaveBeenSent } = error.info
+  // bot_timeout: the bot did not answer within 10 s, so the action may still have been carried out.
+  // invalid_response: the server answered success-shaped nonsense; the write itself may well have happened.
+  return kind === 'timeout' || kind === 'invalid_response' || (kind === 'network' && mayHaveBeenSent !== false) || (kind === 'http' && code === 'bot_timeout')
+}
+
+/**
+ * Stricter than `mayHaveSucceeded`, for writes where a second attempt does real damage (recording race results
+ * adds points every time): besides a lost answer, any server-side failure (5xx) counts as "the outcome is
+ * unknown", because the server may have failed after it recorded the race. Only answers that prove nothing
+ * was done (4xx refusals, rate limit, bot offline) are definite.
+ */
+export function outcomeUnknown(error: unknown): boolean {
+  if (!(error instanceof UiError)) return false
+  if (mayHaveSucceeded(error)) return true
+  const { kind, code, status } = error.info
+  return kind === 'http' && status !== undefined && status >= 500 && code !== 'bot_unavailable'
+}
+
+/** An error that belongs to one form field: the code is looked up in `map` (backend code -> field). */
+export function fieldErrorFor<F extends string>(error: unknown, map: Readonly<Record<string, F>>): { field: F; message: string } | null {
+  const code = errorCode(error)
+  const field = code === null ? undefined : map[code]
+  return field === undefined ? null : { field, message: describeError(error) }
 }
 
 /** `describeError` plus, for an uncertain write, a plain statement that it may already have happened. */

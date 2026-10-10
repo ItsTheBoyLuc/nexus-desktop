@@ -105,8 +105,15 @@ describe('server settings', () => {
 
   it('GET /settings', async () => {
     const { api, calls } = setup(settings)
-    expect(await api.serverSettings(G)).toEqual({ embedColor: '#FF6B00', footerName: 'My League', seasonNumber: 7, effectiveSeason: 9, seasonSource: 'penalty_settings' })
+    expect(await api.serverSettings(G)).toEqual({ embedColor: '#FF6B00', footerName: 'My League', seasonNumber: 7, effectiveSeason: 9, seasonSource: 'penalty_settings', canEdit: null })
     expect(calls[0]).toMatchObject({ path: `${BASE}/settings` })
+  })
+
+  it('reads can_edit so the screen can be read-only up front (null when an older backend does not send it)', async () => {
+    expect(await setup({ ...settings, can_edit: false }).api.serverSettings(G)).toMatchObject({ canEdit: false })
+    expect(await setup({ ...settings, can_edit: true }).api.serverSettings(G)).toMatchObject({ canEdit: true })
+    expect(await setup(settings).api.serverSettings(G)).toMatchObject({ canEdit: null })
+    expect(await setup({ ...settings, can_edit: 'yes' }).api.serverSettings(G)).toMatchObject({ canEdit: null })
   })
 
   it('PUT /settings sends only the given fields, in the backend field names', async () => {

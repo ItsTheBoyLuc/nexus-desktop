@@ -1,4 +1,15 @@
-import type { GameCreateInput, PanelInput, ServerSettingsInput, TierCreateInput, TierUpdateInput } from './types'
+import {
+  isTeamPathName,
+  parseMemberQuery,
+  validateDriverDraft,
+  validatePointsDraft,
+  validateResultsDraft,
+  validateRoundDraft,
+  validateRoundFields,
+  validateTeamDraft
+} from './f1Validation'
+import type { RoundFields } from './f1Validation'
+import type { AddDriverInput, CalendarPostInput, GameCreateInput, PanelInput, PointsSystemInput, ResultsInput, RoundInput, RoundPatch, ServerSettingsInput, TeamInput, TierCreateInput, TierUpdateInput } from './types'
 import {
   codePointLength,
   isValidHexColor,
@@ -91,5 +102,92 @@ export function parseSettingsInput(input: unknown): Parsed<ServerSettingsInput> 
 export function parsePanelRequest(input: unknown): Parsed<PanelInput> {
   const record = isRecord(input) ? input : {}
   const result = validatePanelInput({ channelId: record['channelId'], ...('messageId' in record ? { messageId: record['messageId'] } : {}) })
+  return result.ok ? result : { ok: false, message: firstError(result.errors) }
+}
+
+// ── F1 league (milestone 2) ─────────────────────────────────────────────────
+
+const text2 = (value: unknown): string => (typeof value === 'string' ? value : '')
+
+/** A calendar round number as it appears in a path: a whole number from 1 to 99. */
+export function parseRoundNumber(value: unknown): Parsed<number> {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 99 ? { ok: true, value } : { ok: false, message: 'That round number is not valid.' }
+}
+
+export function parseTeamPathName(value: unknown): Parsed<string> {
+  return typeof value === 'string' && isTeamPathName(value) ? { ok: true, value } : { ok: false, message: 'That team name cannot be used.' }
+}
+
+export function parseMemberSearchQuery(value: unknown): Parsed<string> {
+  const query = typeof value === 'string' ? parseMemberQuery(value) : null
+  return query !== null ? { ok: true, value: query } : { ok: false, message: 'Type 1 to 32 characters to search for a member.' }
+}
+
+export function parseRoundCreateInput(input: unknown): Parsed<RoundInput> {
+  const record = isRecord(input) ? input : {}
+  const round = record['round']
+  const result = validateRoundDraft({
+    name: text2(record['name']),
+    date: text2(record['date']),
+    dateTbd: false, // the date is sent as text ("TBD" or DD/MM/YYYY); the form already turned the checkbox into text
+    time: text2(record['time']),
+    flag: text2(record['flag']),
+    eventType: text2(record['eventType']),
+    round: typeof round === 'number' ? String(round) : ''
+  })
+  return result.ok ? result : { ok: false, message: firstError(result.errors) }
+}
+
+/** A partial round update: every present field is checked with the same rules as the form. */
+export function parseRoundPatch(input: unknown): Parsed<RoundPatch> {
+  if (!isRecord(input)) return { ok: false, message: 'Nothing to change.' }
+  const fields: RoundFields = {}
+  for (const key of ['name', 'date', 'time', 'flag', 'eventType'] as const) {
+    if (key in input) fields[key] = text2(input[key])
+  }
+  const result = validateRoundFields(fields)
+  if (!result.ok) return { ok: false, message: firstError(result.errors) }
+  return Object.keys(result.value).length > 0 ? { ok: true, value: result.value } : { ok: false, message: 'Nothing to change.' }
+}
+
+export function parseCalendarPostRequest(input: unknown): Parsed<CalendarPostInput> {
+  return parsePanelRequest(input)
+}
+
+export function parseTeamInput(input: unknown): Parsed<TeamInput> {
+  const record = isRecord(input) ? input : {}
+  const result = validateTeamDraft({ name: text2(record['name']), color: text2(record['color']), abbreviation: text2(record['abbreviation']) })
+  return result.ok ? result : { ok: false, message: firstError(result.errors) }
+}
+
+export function parseAddDriverInput(input: unknown): Parsed<AddDriverInput> {
+  const record = isRecord(input) ? input : {}
+  const number = record['number']
+  const result = validateDriverDraft({
+    userId: text2(record['userId']),
+    number: typeof number === 'number' ? String(number) : ''
+  })
+  return result.ok ? result : { ok: false, message: firstError(result.errors) }
+}
+
+export function parseResultsInput(input: unknown): Parsed<ResultsInput> {
+  const record = isRecord(input) ? input : {}
+  const results = Array.isArray(record['results']) ? (record['results'] as unknown[]) : []
+  const result = validateResultsDraft({
+    season: text2(record['season']),
+    round: text2(record['round']),
+    circuit: text2(record['circuit']),
+    drivers: results.map((id) => text2(id)),
+    fastestLap: text2(record['fastestLap']),
+    pole: text2(record['pole'])
+  })
+  return result.ok ? result : { ok: false, message: firstError(result.errors) }
+}
+
+export function parsePointsSystemInput(input: unknown): Parsed<PointsSystemInput> {
+  const record = isRecord(input) ? input : {}
+  const points = Array.isArray(record['points']) ? (record['points'] as unknown[]) : []
+  const asText = (value: unknown): string => (typeof value === 'number' && Number.isFinite(value) ? String(value) : '')
+  const result = validatePointsDraft({ points: points.map(asText), pole: asText(record['pole']), fastestLap: asText(record['fastestLap']) })
   return result.ok ? result : { ok: false, message: firstError(result.errors) }
 }

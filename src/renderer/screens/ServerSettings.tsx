@@ -12,8 +12,9 @@ import { invalidateServerSettings } from '../lib/invalidation'
 import { useServer } from './ServerRoute'
 
 /**
- * Servers where saving came back 403 admin_required during this session. Nothing in the API tells us
- * the permission up front, so the first refusal is remembered and the form stays read-only until the app restarts.
+ * Servers where saving came back 403 admin_required during this session. GET /settings says up front
+ * whether the caller may edit (`can_edit`), so this is only the fallback for a backend that does not send
+ * it: the first refusal is remembered and the form stays read-only until the app restarts.
  */
 const adminDenied = new Set<string>()
 
@@ -59,7 +60,8 @@ function SettingsForm({ settings, guildId }: { settings: ServerSettings; guildId
   const write = useWriteAction()
   const [draft, setDraft] = useState<SettingsDraft>(() => draftOf(settings))
   const [submitted, setSubmitted] = useState(false)
-  const [denied, setDenied] = useState(() => adminDenied.has(guildId))
+  // `can_edit` decides up front; the remembered 403 only matters when the server did not send it.
+  const [denied, setDenied] = useState(() => settings.canEdit === false || (settings.canEdit === null && adminDenied.has(guildId)))
   const [problem, setProblem] = useState<{ text: string; uncertain: boolean } | null>(null)
 
   const result = validateSettingsDraft(draft, settings)
@@ -90,7 +92,7 @@ function SettingsForm({ settings, guildId }: { settings: ServerSettings; guildId
       return
     }
     if (errorCode(outcome.error) === 'admin_required') {
-      adminDenied.add(guildId)
+      adminDenied.add(guildId) // fallback: the permission changed since GET /settings
       setDenied(true) // the banner at the top of the form says it; no second message
       setDraft(draftOf(settings)) // read-only now: show what is really stored, not the edit that was refused
       return
@@ -239,7 +241,7 @@ export function ServerSettingsScreen() {
       {settings.status === 'ready' ? (
         // Keyed by what the server holds: after a save and re-read the draft is rebuilt from the stored values.
         <SettingsForm
-          key={`${settings.data.embedColor}|${settings.data.footerName}|${settings.data.seasonNumber}|${settings.data.effectiveSeason}`}
+          key={`${settings.data.embedColor}|${settings.data.footerName}|${settings.data.seasonNumber}|${settings.data.effectiveSeason}|${String(settings.data.canEdit)}`}
           settings={settings.data}
           guildId={guild.id}
         />

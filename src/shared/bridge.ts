@@ -1,23 +1,42 @@
 import type {
+  AddDriverInput,
+  AddDriverResult,
   AnnouncementInput,
   AnnouncementResult,
   ApiStatus,
   AuthState,
+  Calendar,
+  CalendarPostInput,
+  CalendarPostResult,
   Channel,
+  DriverStats,
   Game,
   GameCreateInput,
   Guild,
   IpcResult,
   LeagueGame,
   LeagueGames,
+  MemberSearch,
+  NextRace,
   Overview,
   PanelInput,
   PanelResult,
+  PointsSystem,
+  PointsSystemInput,
+  RaceOutcome,
+  RemoveDriverResult,
+  ResultsInput,
   Role,
+  RoundInput,
+  RoundPatch,
+  RoundResult,
   ServerSettings,
   ServerSettingsInput,
   Settings,
   SettingsPatch,
+  Standings,
+  Team,
+  TeamInput,
   Tier,
   TierCreateInput,
   TierUpdateInput,
@@ -70,6 +89,38 @@ export interface NexusBridge {
      * remembers the posted panel (message id) in the settings file; nothing else may write it.
      */
     postPanel: (guildId: string, gameKey: string, tierKey: string, input: PanelInput) => Promise<IpcResult<PanelResult>>
+
+    /** Member search for pickers: 1-32 characters, at most 25 results. Never ask for an ID. */
+    members: (guildId: string, query: string) => Promise<IpcResult<MemberSearch>>
+
+    // F1 league (milestone 2). Writes are sent once and never replayed.
+    calendar: (guildId: string) => Promise<IpcResult<Calendar>>
+    createRound: (guildId: string, input: RoundInput) => Promise<IpcResult<RoundResult>>
+    updateRound: (guildId: string, round: number, patch: RoundPatch) => Promise<IpcResult<RoundResult>>
+    deleteRound: (guildId: string, round: number) => Promise<IpcResult<Calendar>>
+    /**
+     * Posts the calendar embed, or edits the earlier post when `messageId` is given. The main process
+     * remembers the returned message id per server in the settings file, and forgets it when the API says
+     * the message is gone.
+     */
+    postCalendar: (guildId: string, input: CalendarPostInput) => Promise<IpcResult<CalendarPostResult>>
+    /** 404 calendar_not_found when there is no calendar yet. */
+    nextRace: (guildId: string) => Promise<IpcResult<NextRace>>
+
+    teams: (guildId: string) => Promise<IpcResult<Team[]>>
+    createTeam: (guildId: string, input: TeamInput) => Promise<IpcResult<Team>>
+    addDriver: (guildId: string, teamName: string, input: AddDriverInput) => Promise<IpcResult<AddDriverResult>>
+    removeDriver: (guildId: string, teamName: string, userId: string) => Promise<IpcResult<RemoveDriverResult>>
+    driver: (guildId: string, userId: string) => Promise<IpcResult<DriverStats>>
+
+    standings: (guildId: string) => Promise<IpcResult<Standings>>
+    /**
+     * Records one race. Recording the same race twice adds its points twice. The main process writes the
+     * local ledger only when the API answered success, never after a failure or a lost answer.
+     */
+    recordResults: (guildId: string, input: ResultsInput) => Promise<IpcResult<RaceOutcome>>
+    pointsSystem: (guildId: string) => Promise<IpcResult<PointsSystem>>
+    savePointsSystem: (guildId: string, input: PointsSystemInput) => Promise<IpcResult<PointsSystem>>
 
     /** Current connection status (components that mount late would otherwise miss earlier events). */
     getStatus: () => Promise<ApiStatus>

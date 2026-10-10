@@ -1,4 +1,3 @@
-import { DISCORD_CDN } from '../shared/csp'
 import type {
   AnnouncementInput,
   AnnouncementResult,
@@ -24,14 +23,16 @@ import type {
   UserInfo
 } from '../shared/types'
 import { isValidHexColor, isValidKey, isValidSnowflake } from '../shared/validation'
-import { ApiError } from './apiClient'
 import type { ApiClient } from './apiClient'
+import { cdnImage, clientError, invalid, isCount, isRecord, isText, list } from './apiParse'
+import { createF1Api } from './f1Api'
+import type { F1Api } from './f1Api'
 
 /**
  * Everything the UI can ask the backend for. Responses are validated, never trusted blindly.
  * Paths, methods, bodies and response shapes follow docs/APP_API.md and nothing else.
  */
-export interface NexusApi {
+export interface NexusApi extends F1Api {
   me: () => Promise<UserInfo>
   guilds: () => Promise<Guild[]>
   games: (guildId: string) => Promise<Game[]>
@@ -51,39 +52,6 @@ export interface NexusApi {
   updateTier: (guildId: string, gameKey: string, tierKey: string, input: TierUpdateInput) => Promise<Tier>
   deleteTier: (guildId: string, gameKey: string, tierKey: string) => Promise<void>
   postPanel: (guildId: string, gameKey: string, tierKey: string, input: PanelInput) => Promise<PanelResult>
-}
-
-function invalid(what: string): ApiError {
-  return new ApiError({
-    kind: 'invalid_response',
-    code: 'invalid_response',
-    message: `The server sent an unexpected ${what} response. Please try again later.`,
-    mayHaveBeenSent: true
-  })
-}
-
-function clientError(code: string, message: string): ApiError {
-  return new ApiError({ kind: 'validation', code, message, mayHaveBeenSent: false })
-}
-
-const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
-const isText = (value: unknown, max = 200): value is string => typeof value === 'string' && value.length > 0 && value.length <= max
-const isCount = (value: unknown): value is number => typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 1_000_000_000
-
-/** Only Discord CDN images may be shown (the renderer CSP enforces the same). */
-function cdnImage(value: unknown): string | null {
-  if (typeof value !== 'string') return null
-  try {
-    const url = new URL(value)
-    return url.protocol === 'https:' && url.origin === DISCORD_CDN ? url.href : null
-  } catch {
-    return null
-  }
-}
-
-function list(json: unknown, key: string, what: string): unknown[] {
-  if (!isRecord(json) || !Array.isArray(json[key])) throw invalid(what)
-  return json[key] as unknown[]
 }
 
 // ── Parsers for the milestone-1 shapes ──────────────────────────────────────
@@ -144,7 +112,8 @@ function parseSettings(json: unknown): ServerSettings {
     footerName: json['footer_name'].slice(0, 200),
     seasonNumber: season,
     effectiveSeason: effective,
-    seasonSource: source satisfies SeasonSource
+    seasonSource: source satisfies SeasonSource,
+    canEdit: typeof json['can_edit'] === 'boolean' ? json['can_edit'] : null
   }
 }
 
@@ -218,6 +187,8 @@ export function createNexusApi(client: ApiClient): NexusApi {
   }
 
   return {
+    ...createF1Api(client),
+
     async me() {
       const json = await client.request({ path: '/api/app/v1/me' })
       if (!isRecord(json) || !isText(json['id'], 20) || !isText(json['username'], 100)) throw invalid('profile')

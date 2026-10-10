@@ -16,6 +16,7 @@
  *   error                          every API call fails with a 500
  *   slow                           slow answers and the "server is waking up" banner
  *   nogames                        no game is enabled in any server
+ *   norounds | nobotperms | nofia | lostresults   F1 league cases, see mock/f1Mock.ts
  *   notadmin                       staff only, not Administrator: saving settings returns 403
  *                                  admin_required and linking an admin-level role returns
  *                                  403 role_too_privileged
@@ -35,7 +36,6 @@ import { panelKey, sanitizePanels } from '../../shared/panels'
 import { DEFAULT_SETTINGS, GAME_LABELS } from '../../shared/types'
 import type {
   AnnouncementResult,
-  ApiErrorInfo,
   ApiStatus,
   AuthState,
   Channel,
@@ -54,11 +54,11 @@ import type {
   UserInfo
 } from '../../shared/types'
 
+import { clone, failure, notFound, sleep, timeoutFailure } from './common'
+import { createF1Mock } from './f1Mock'
+
 /** Marker searched for by scripts/check-no-mock.mjs. Do not rename without updating it. */
 export const MOCK_MARKER = 'NEXUS_MOCK_BRIDGE_ACTIVE'
-
-const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
-const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T
 
 /** Decorative icon: a coloured rounded square with initials, as a data: URI (allowed by the CSP too). */
 function iconFor(name: string, hue: number): string {
@@ -236,12 +236,6 @@ const EXTRAS: Record<string, Extras> = {
   [MIDNIGHT]: { teams: 8, teamDrivers: 16, rounds: 24, openSignups: 2, reports: 40, pending: 7, next: true, points: true, penalties: true }
 }
 
-function failure(kind: ApiErrorInfo['kind'], code: string, message: string, status?: number, extra: Partial<ApiErrorInfo> = {}): IpcResult<never> {
-  return { ok: false, error: { kind, code, message, ...(status ? { status } : {}), ...extra } }
-}
-const notFound = (code: string, message: string): IpcResult<never> => failure('http', code, message, 404)
-const timeoutFailure = (): IpcResult<never> => failure('timeout', 'timeout', 'The server took too long to respond.', undefined, { mayHaveBeenSent: true })
-
 export function installMockBridge(): void {
   // Typed as always-present on Window, so look at it through a loose type to keep the check meaningful.
   if ((window as { nexus?: unknown }).nexus !== undefined) throw new Error('Mock bridge refused: a real bridge is already installed.')
@@ -271,6 +265,25 @@ export function installMockBridge(): void {
           })
   }
   let nextMessage = 888000000000000200n
+
+  // The F1 league mock (calendar, teams, standings ...) and its share of the fake settings file.
+  const f1 = createF1Mock({
+    scenario,
+    isAdmin,
+    api,
+    known: (guildId) => GUILDS.some((guild) => guild.id === guildId),
+    channels: CHANNELS,
+    timeoutChannel: TIMEOUT_CHANNEL,
+    getSettings: () => settings,
+    setSettings: (next) => {
+      settings = next
+    },
+    liveMessages,
+    newMessageId: () => String(nextMessage++),
+    apex: APEX,
+    midnight: MIDNIGHT
+  })
+  settings = f1.seedSettings(settings)
 
   let authState: AuthState =
     scenario === 'signedout'
@@ -335,7 +348,8 @@ export function installMockBridge(): void {
       footerName: s.footerName,
       seasonNumber: s.seasonNumber,
       effectiveSeason: s.penaltySeason ?? s.seasonNumber ?? 1,
-      seasonSource: source
+      seasonSource: source,
+      canEdit: isAdmin
     }
   }
 
@@ -346,15 +360,16 @@ export function installMockBridge(): void {
     const rolesFound = tiers.filter((item) => roleById(item.roleId)).length
     const s = serverSettings[guildId]
     const roleIds = [...new Set(tiers.map((item) => item.roleId))]
+    const f1Counts = f1.counts(guildId)
     const counts = {
       games: games.length,
       activeGames: games.filter((game) => game.active).length,
       tiers: tiers.length,
       tiersWithPanel: tiers.filter((item) => item.signupPanelPosted).length,
       tierDrivers: roleIds.reduce((sum, id) => sum + (MEMBER_COUNTS[id] ?? 0), 0),
-      teams: extra.teams,
-      teamDrivers: extra.teamDrivers,
-      calendarRounds: extra.rounds,
+      teams: f1Counts?.teams ?? extra.teams,
+      teamDrivers: f1Counts?.teamDrivers ?? extra.teamDrivers,
+      calendarRounds: f1Counts?.rounds ?? extra.rounds,
       openSignups: extra.openSignups,
       reports: extra.reports,
       pendingReports: extra.pending
@@ -366,8 +381,8 @@ export function installMockBridge(): void {
       item('tier', 'At least one tier created', counts.tiers > 0),
       item('tier_roles', 'Every tier is linked to a real role', counts.tiers > 0 && rolesFound === counts.tiers, `${rolesFound}/${counts.tiers} roles found`),
       item('signup_panel', 'A sign-up panel is posted', counts.tiersWithPanel > 0),
-      item('calendar', 'Season calendar created', extra.rounds > 0),
-      item('teams', 'At least one team created', extra.teams > 0),
+      item('calendar', 'Season calendar created', counts.calendarRounds > 0),
+      item('teams', 'At least one team created', counts.teams > 0),
       item('points', 'Custom points system configured', extra.points),
       item('penalties', 'Penalty points configured', extra.penalties)
     ]
@@ -375,9 +390,7 @@ export function installMockBridge(): void {
       memberCount: guildId === APEX ? 120 : guildId === MIDNIGHT ? 2400 : 40,
       season: settingsView(guildId).effectiveSeason,
       counts,
-      nextEvent: extra.next
-        ? { round: 3, name: 'Monza Grand Prix', flag: null, date: '14/11/2026', time: '20:00', eventType: 'Sprint Weekend', countdownHours: 121 }
-        : null,
+      nextEvent: f1Counts ? f1Counts.next : null,
       checklist,
       setupComplete: checklist.every((entry) => entry.done),
       memberCacheComplete: guildId !== MIDNIGHT
@@ -550,6 +563,8 @@ export function installMockBridge(): void {
           settings = { ...settings, panels: { ...settings.panels, [key]: stored } }
           return { ok: true, data: { messageId, channelId: input.channelId, refreshed: input.messageId !== undefined, tier: toTier(target) } }
         }),
+
+      ...f1.api,
 
       getStatus: async () => currentStatus,
       onStatusChange: (callback): Unsubscribe => {

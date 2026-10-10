@@ -1,8 +1,9 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
+import { appendLedgerEntry, isLedgerEntry, sanitizeCalendarPosts, sanitizeLedger } from '../shared/f1Store'
 import { isStoredPanel, isValidPanelKey, MAX_STORED_PANELS, panelKey, panelKeysFor, sanitizePanels } from '../shared/panels'
 import { DEFAULT_SETTINGS, isGameKey } from '../shared/types'
-import type { Settings, StoredPanel } from '../shared/types'
+import type { LedgerEntry, Settings, StoredPanel } from '../shared/types'
 import { isValidKey, isValidSnowflake } from '../shared/validation'
 import { log } from './log'
 
@@ -22,14 +23,21 @@ export function sanitizeSettings(input: unknown): Partial<Settings> {
 /** The settings file is user-editable, so it is validated field by field when it is read. */
 function sanitizeStoredSettings(input: unknown): Partial<Settings> {
   const clean = sanitizeSettings(input)
-  if (typeof input === 'object' && input !== null && 'panels' in input) clean.panels = sanitizePanels((input as { panels: unknown }).panels)
+  if (typeof input === 'object' && input !== null) {
+    const record = input as Record<string, unknown>
+    if ('panels' in record) clean.panels = sanitizePanels(record['panels'])
+    if ('calendarPosts' in record) clean.calendarPosts = sanitizeCalendarPosts(record['calendarPosts'])
+    if ('ledger' in record) clean.ledger = sanitizeLedger(record['ledger'])
+  }
   return clean
 }
 
 /**
- * The last chosen server and game, plus the sign-up panels this app posted (the API cannot
- * look panels up, so the message id from POST post-panel is the only way to refresh one later).
+ * The last chosen server and game, plus what this app remembers because the API cannot tell it:
+ * the sign-up panels it posted and the calendar message it posted (the message id from the POST is the
+ * only way to refresh them later), and a ledger of the races it recorded.
  * A small JSON file in userData. Not sensitive; tokens are never stored here.
+ * Only the main process writes panels, calendar posts and the ledger, and only after the API confirmed it.
  */
 export class SettingsStore {
   private current: Settings
@@ -39,7 +47,12 @@ export class SettingsStore {
   }
 
   get(): Settings {
-    return { ...this.current, panels: { ...this.current.panels } }
+    return {
+      ...this.current,
+      panels: { ...this.current.panels },
+      calendarPosts: { ...this.current.calendarPosts },
+      ledger: this.current.ledger.map((entry) => ({ ...entry }))
+    }
   }
 
   set(patch: unknown): Settings {
@@ -72,12 +85,39 @@ export class SettingsStore {
     this.write()
   }
 
+  /** Remember the calendar message of a server after the API confirmed it was posted. Invalid input is ignored. */
+  rememberCalendarPost(guildId: string, post: StoredPanel): void {
+    if (!isValidSnowflake(guildId) || !isStoredPanel(post)) return
+    const posts = { ...this.current.calendarPosts }
+    delete posts[guildId]
+    posts[guildId] = { messageId: post.messageId, channelId: post.channelId }
+    this.current = { ...this.current, calendarPosts: sanitizeCalendarPosts(posts) }
+    this.write()
+  }
+
+  /** Forget the calendar message of a server (it was deleted in Discord, or is not ours). */
+  forgetCalendarPost(guildId: string): void {
+    if (!(guildId in this.current.calendarPosts)) return
+    const posts = { ...this.current.calendarPosts }
+    delete posts[guildId]
+    this.current = { ...this.current, calendarPosts: posts }
+    this.write()
+  }
+
+  /** Record that a race was saved, after the API confirmed it. Invalid input is ignored. */
+  recordRace(entry: LedgerEntry): void {
+    if (!isLedgerEntry(entry)) return
+    this.current = { ...this.current, ledger: appendLedgerEntry(this.current.ledger, entry) }
+    this.write()
+  }
+
   private read(): Settings {
+    const fresh = (): Settings => ({ ...DEFAULT_SETTINGS, panels: {}, calendarPosts: {}, ledger: [] })
     try {
       const raw: unknown = JSON.parse(readFileSync(this.filePath, 'utf8'))
-      return { ...DEFAULT_SETTINGS, panels: {}, ...sanitizeStoredSettings(raw) }
+      return { ...fresh(), ...sanitizeStoredSettings(raw) }
     } catch {
-      return { ...DEFAULT_SETTINGS, panels: {} }
+      return fresh()
     }
   }
 

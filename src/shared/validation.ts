@@ -94,7 +94,7 @@ export function isValidHexColor(value: unknown): value is string {
 }
 
 /** null when fine, else the reason. Single line, no control characters, length in code points. */
-function singleLineProblem(value: string, min: number, max: number, what: string): string | null {
+export function singleLineProblem(value: string, min: number, max: number, what: string): string | null {
   const length = codePointLength(value)
   if (length < min) return `Enter ${what}.`
   if (length > max) return `${what[0]!.toUpperCase()}${what.slice(1)} can be at most ${max} characters.`

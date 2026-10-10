@@ -98,6 +98,8 @@ export interface ServerSettings {
   effectiveSeason: number
   /** Which stored value decides `effectiveSeason`. */
   seasonSource: SeasonSource
+  /** True when the caller is an Administrator (may PUT). null when the server did not say (older backend): rely on 403 admin_required. */
+  canEdit: boolean | null
 }
 
 /** Any subset; only the fields present are changed. */
@@ -216,6 +218,223 @@ export interface Overview {
   memberCacheComplete: boolean
 }
 
+// ── F1 league (milestone 2): calendar, teams, standings, points system ─────
+
+/** The three event types the backend accepts, exactly as written. */
+export const EVENT_TYPES = ['Normal Race', 'Sprint Weekend', 'Full Qualifying'] as const
+export type EventType = (typeof EVENT_TYPES)[number]
+
+export function isEventType(value: unknown): value is EventType {
+  return typeof value === 'string' && (EVENT_TYPES as readonly string[]).includes(value)
+}
+
+export interface CalendarRound {
+  /** As returned: rounds are never renumbered, so a deleted round leaves a gap. */
+  round: number
+  name: string
+  /** DD/MM/YYYY or "TBD". */
+  date: string
+  /** HH:MM (24 h) or "" (to be decided). */
+  time: string
+  /** Up to 8 characters (a flag emoji or a short code); may be empty. */
+  flag: string
+  /** Normally one of EVENT_TYPES; kept as text so legacy data still shows. */
+  eventType: string
+}
+
+export interface Calendar {
+  name: string
+  /** Someone is in the middle of the /f1 calendar wizard in Discord. */
+  setupInProgress: boolean
+  rounds: CalendarRound[]
+}
+
+export interface RoundInput {
+  name: string
+  date: string
+  time: string
+  flag: string
+  eventType: EventType
+  /** Optional 1-99: fills a gap. Absent = highest number + 1. */
+  round?: number
+}
+
+/** Any subset; only the fields present are changed. */
+export interface RoundPatch {
+  name?: string
+  date?: string
+  time?: string
+  flag?: string
+  eventType?: EventType
+}
+
+export interface RoundResult {
+  round: CalendarRound
+  calendar: Calendar
+}
+
+export interface NextRace {
+  calendarName: string
+  race: CalendarRound
+  /** False when every round is in the past: `race` is then the last round. */
+  upcoming: boolean
+  countdownHours: number | null
+  countdown: { days: number; hours: number } | null
+}
+
+export interface CalendarPostInput {
+  channelId: string
+  /** Present = edit that message in place; absent = post a new one. */
+  messageId?: string
+}
+
+export interface CalendarPostResult {
+  messageId: string
+  channelId: string
+  refreshed: boolean
+}
+
+export interface TeamDriver {
+  userId: string
+  username: string
+  displayName: string
+  number: number | null
+  points: number
+  wins: number
+  podiums: number
+}
+
+export interface Team {
+  name: string
+  abbreviation: string
+  /** "#RRGGBB" upper-case, or null if the server sent something else. */
+  color: string | null
+  roleId: string | null
+  roleName: string | null
+  channelId: string | null
+  channelName: string | null
+  /** Sum of the drivers' points. */
+  points: number
+  drivers: TeamDriver[]
+}
+
+export interface TeamInput {
+  name: string
+  color: string
+  abbreviation: string
+}
+
+export interface AddDriverInput {
+  userId: string
+  /** 0-999; absent or null = no number. */
+  number?: number | null
+}
+
+export interface AddDriverResult {
+  team: Team
+  userId: string
+}
+
+export interface RemoveDriverResult {
+  team: Team
+  roleRemoved: boolean
+  /** False when the driver has left the server (the roster entry is still removed). */
+  memberInServer: boolean
+}
+
+export interface DriverStats {
+  userId: string
+  username: string
+  displayName: string
+  /** "—" for a driver on no team. */
+  team: string
+  points: number
+  wins: number
+  podiums: number
+  number: number | null
+}
+
+/** A server member as listed by the member search (for pickers). */
+export interface Member {
+  id: string
+  username: string
+  displayName: string
+  avatar: string | null
+  bot: boolean
+}
+
+export interface MemberSearch {
+  members: Member[]
+  /** More than 25 matched: refine the search. */
+  truncated: boolean
+}
+
+export interface StandingsDriver {
+  position: number
+  userId: string
+  username: string
+  team: string
+  points: number
+  wins: number
+  podiums: number
+  gap: number
+}
+
+export interface StandingsTeam {
+  position: number
+  team: string
+  points: number
+  drivers: number
+  gap: number
+}
+
+export interface Standings {
+  drivers: StandingsDriver[]
+  constructors: StandingsTeam[]
+}
+
+/** One race to record. Drivers are always chosen from a picker and sent by user id, never typed. */
+export interface ResultsInput {
+  season: string
+  round: string
+  circuit: string
+  /** Finishing order: position = index + 1. 1-20 distinct user ids. */
+  results: string[]
+  fastestLap?: string
+  pole?: string
+}
+
+export interface ResultLine {
+  position: number
+  name: string
+  /** What the SERVER awarded; the app never computes points. */
+  points: number
+  matched: boolean
+}
+
+export interface RaceOutcome {
+  raceTitle: string
+  results: ResultLine[]
+  /** Drivers the server could not match: they scored nothing. */
+  notFound: string[]
+  standings: Standings
+}
+
+export interface PointsSystem {
+  /** Always 20 entries, P1 first. */
+  points: number[]
+  pole: number
+  fastestLap: number
+  /** Nothing saved yet: the built-in defaults apply. */
+  isDefault: boolean
+}
+
+export interface PointsSystemInput {
+  points: number[]
+  pole: number
+  fastestLap: number
+}
+
 export type ApiErrorKind =
   | 'http'
   | 'network'
@@ -243,15 +462,31 @@ export type IpcResult<T> = { ok: true; data: T } | { ok: false; error: ApiErrorI
 
 export type ApiStatus = 'unknown' | 'online' | 'waking' | 'offline'
 
+/** A race this app recorded successfully, kept locally to warn before the same race is recorded twice. */
+export interface LedgerEntry {
+  guildId: string
+  /** Free text exactly as entered (<= 20 characters). */
+  season: string
+  /** Free text exactly as entered (<= 10 characters). */
+  round: string
+  circuit: string
+  /** ISO 8601 time of the confirmed answer. */
+  recordedAt: string
+}
+
 /** App settings kept in userData/settings.json. Not sensitive, never contains tokens. */
 export interface Settings {
   lastGuildId: string | null
   lastGame: GameKey | null
   /** Sign-up panels posted by this app, by `guildId:gameKey:tierKey` (see shared/panels.ts). */
   panels: Record<string, StoredPanel>
+  /** The calendar message this app posted, per server id (the API does not store message ids). */
+  calendarPosts: Record<string, StoredPanel>
+  /** Races this app recorded, oldest first (see shared/f1Store.ts). Only the main process writes it. */
+  ledger: LedgerEntry[]
 }
 
-export const DEFAULT_SETTINGS: Settings = { lastGuildId: null, lastGame: null, panels: {} }
+export const DEFAULT_SETTINGS: Settings = { lastGuildId: null, lastGame: null, panels: {}, calendarPosts: {}, ledger: [] }
 
 /** What the renderer may change itself; panels are only ever written by the main process. */
 export type SettingsPatch = Partial<Pick<Settings, 'lastGuildId' | 'lastGame'>>

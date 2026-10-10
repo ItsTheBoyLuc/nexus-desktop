@@ -1,8 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import type { Channel, Game, Guild, LeagueGames, Overview, Role, ServerSettings } from '../../shared/types'
+import type { Calendar, Channel, Game, Guild, LeagueGames, NextRace, Overview, PointsSystem, Role, ServerSettings, Standings, Team } from '../../shared/types'
 import { cached, clearCache, dropCached, onInvalidate } from '../lib/cache'
-import { unwrap } from '../lib/errors'
+import { errorCode, unwrap } from '../lib/errors'
 import { useAsync } from './useAsync'
 import type { AsyncState } from './useAsync'
 
@@ -94,4 +94,38 @@ export function useServerSettings(guildId: string | undefined): Loaded<ServerSet
 
 export function useLeagueGames(guildId: string | undefined): Loaded<LeagueGames> {
   return useApiData(guildId ? `league-games:${guildId}` : null, () => unwrap(window.nexus.api.leagueGames(guildId ?? '')), false)
+}
+
+// ── F1 league (milestone 2): always read fresh, like every screen that shows server state ──
+
+export function useCalendar(guildId: string | undefined): Loaded<Calendar> {
+  return useApiData(guildId ? `f1-calendar:${guildId}` : null, () => unwrap(window.nexus.api.calendar(guildId ?? '')), false)
+}
+
+/** `null` data = there is no calendar (404 calendar_not_found), which is a normal state, not an error. */
+export function useNextRace(guildId: string | undefined): Loaded<NextRace | null> {
+  return useApiData(
+    guildId ? `f1-next-race:${guildId}` : null,
+    async () => {
+      try {
+        return await unwrap(window.nexus.api.nextRace(guildId ?? ''))
+      } catch (error) {
+        if (errorCode(error) === 'calendar_not_found') return null
+        throw error
+      }
+    },
+    false
+  )
+}
+
+export function useTeams(guildId: string | undefined): Loaded<Team[]> {
+  return useApiData(guildId ? `f1-teams:${guildId}` : null, () => unwrap(window.nexus.api.teams(guildId ?? '')), false)
+}
+
+export function useStandings(guildId: string | undefined): Loaded<Standings> {
+  return useApiData(guildId ? `f1-standings:${guildId}` : null, () => unwrap(window.nexus.api.standings(guildId ?? '')), false)
+}
+
+export function usePointsSystem(guildId: string | undefined): Loaded<PointsSystem> {
+  return useApiData(guildId ? `f1-points:${guildId}` : null, () => unwrap(window.nexus.api.pointsSystem(guildId ?? '')), false)
 }
