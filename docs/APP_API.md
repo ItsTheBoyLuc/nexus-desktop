@@ -4,13 +4,14 @@ Token-based API for the Nexus Windows desktop app. Implemented in `app_backend.p
 bot's Flask app. This file is the contract: **every registered route is listed here** (a unit test,
 `DocsComplete` in `scripts/test_app_api.py`, fails if a route is added without documenting it).
 
-**Status:** Auth + base, **M1 — Foundations, Games & tiers, Server settings, Overview** and
-**M2 — F1 league core (calendar, teams and drivers, standings, points system)**.
-M3–M5 (reports, penalties, attendance, sign-ups, esports) are not built yet.
+**Status:** Auth + base, **M1 — Foundations, Games & tiers, Server settings, Overview**,
+**M2 — F1 league core (calendar, teams and drivers, standings, points system)** and
+**M3 — Reports, penalty points, bans, dirty drivers** (plus a results ledger and the points-system defaults).
+M4–M5 (attendance, sign-ups, esports) are not built yet.
 
 Contents: [Conventions](#conventions) · [Auth](#auth) · [Base](#base-endpoints) · [Pickers](#pickers) ·
 [Overview](#overview) · [Server settings](#server-settings) · [Games & tiers](#games--tiers) · [F1 league](#f1-league) ·
-[Sync notes](#sync-with-discord)
+[Reports and penalties](#reports-and-penalties-m3) · [Sync notes](#sync-with-discord)
 
 ---
 
@@ -77,7 +78,8 @@ Every successful write is appended (newest first, capped at 500) to the `data/ap
 store as `{ts, user_id, username, guild_id, action, detail}`. Actions: `announcement.post`,
 `settings.update`, `league.game.create|enable|disable|delete`, `league.tier.create|update|delete`,
 `league.panel.post|refresh`, `f1.calendar.rename|post|edit_post`, `f1.calendar.round.create|update|delete`,
-`f1.team.create`, `f1.driver.add|remove`, `f1.results.record`, `f1.points_system.update`.
+`f1.team.create`, `f1.driver.add|remove`, `f1.results.record`, `f1.points_system.update`, `f1.report.decide`,
+`f1.penalty_settings.update`, `f1.penalty.add|clear|ban_give|ban_remove|advance_race`, `f1.dirty_driver.report|remove_report`.
 
 ---
 
@@ -518,7 +520,7 @@ Errors: `404 calendar_not_found | round_not_found`.
 ### POST /guilds/{guild_id}/f1/calendar/post
 
 Posts the combined calendar embed in a channel (the embed `/f1 calendar` and `/f1 calendar-view` post: one field per 10 rounds,
-continuation fields titled "📅 Races (cont.)", footer "Calendar set by <you> · N rounds · <server footer> · <time>"), or edits a
+only the first field titled "📅 Races" (continuation fields have a blank title), footer "Calendar set by <you> · N rounds · <server footer> · <time>"), or edits a
 previous post in place.
 
 Request: `{ "channel_id": "777…", "message_id": "999…" }` — `message_id` is optional: without it a new message is posted,
@@ -648,7 +650,7 @@ Constructor points follow automatically (they are the sum of their drivers).
 { "season": 5, "round": 3, "circuit": "Zandvoort",
   "results": ["alice", { "user_id": "2002" }, "carol_x"],
   "fastest_lap": "carol_x", "pole": { "user_id": "2001" },
-  "channel_id": "777…" }
+  "channel_id": "777…", "confirm_duplicate": false }
 ```
 
 * `season` (≤ 20 chars), `round` (≤ 10), `circuit` (≤ 60): text or numbers; they only form the title "Season 5 Round 3 — Zandvoort".
@@ -657,7 +659,12 @@ Constructor points follow automatically (they are the sum of their drivers).
   Drivers that are not found score nothing and are returned in `not_found`; the others are still recorded.
 * `fastest_lap`, `pole`: optional, a name or `{ "user_id" }`; it must be one of the drivers in `results`. The command matches these
   names by substring; if a name would match more than one driver in `results` the request is refused (`400 ambiguous_name`).
-* `channel_id`: optional; when given, the three embeds `/f1 standings` posts (results, WDC, WCC) are posted there.
+* `channel_id`: optional; when given, the three embeds `/f1 standings` posts (results, WDC, WCC) are posted there (the same embed builders
+  as the command). The channel must be a text channel the bot can post embeds in **and** you can see: `400 invalid_channel` (not a numeric ID),
+  `404 channel_not_found`, `403 bot_cannot_send` (the bot lacks View Channel / Send Messages / Embed Links there), `403 forbidden` (you cannot
+  see it). These are checked **before** anything is recorded. If only the post fails afterwards (`discord_error`, `bot_timeout`, …) the points
+  stay recorded and the code is returned as `announce_error`.
+* `confirm_duplicate`: optional boolean, see the ledger below.
 
 Response `200`:
 
@@ -667,25 +674,48 @@ Response `200`:
   "not_found": [],
   "standings": { "drivers": [ … ], "constructors": [ … ] },
   "posted": { "channel_id": "777…", "message_ids": ["…", "…", "…"] } | null,
-  "announce_error": null }
+  "announce_error": null,
+  "ledger": { "recorded": true, "entry": { "season": "5", "round": "3", "circuit": "Zandvoort", "recorded_by": "boss", "timestamp": "2026-…Z" }, "duplicate": false } }
 ```
 
-> **Recording the same race twice adds its points twice.** The data stores only running totals per driver, not per-race results
-> (neither the command nor the API can tell that a race was already recorded), and the schema is not extended for it. The app should
-> ask for confirmation before recording and should not offer "record again". `409 results_already_recorded` therefore does not exist.
+**Duplicate guard.** The standings data stores only running totals, so it cannot tell that a race was already recorded. The API therefore
+keeps its **own ledger** (`data/app_results_ledger.json`, `{ guild: [ { season, round, circuit, recorded_by, timestamp } ] }`), appended with the
+locked atomic helper **only after the results were applied** (a failed request writes no entry). If an entry with the same `season` and `round`
+(compared as trimmed, case-insensitive text) already exists and the body does not say `"confirm_duplicate": true`, the request is refused with
+
+```json
+// 409
+{ "error": "results_already_recorded", "message": "…", "existing": { "season": "5", "round": "3", "circuit": "Zandvoort", "recorded_by": "boss", "timestamp": "…" } }
+```
+
+and **nothing is changed** (no points, no ledger entry, nothing posted). With `"confirm_duplicate": true` the points **are added again**
+(exactly like running the command twice) and another ledger entry is appended; `ledger.duplicate` is then `true`. If only the ledger write
+fails the response is still `200` with `ledger.recorded: false` (the points are applied; retrying would double them).
+
+> **Races recorded with the Discord command `/f1 standings` are not in this ledger** (the command is untouched), and neither are races recorded
+> before this feature existed. The guard only protects against repeating a race **through the app**.
 
 Errors: `403 fia_required | forbidden`, `400 invalid_season | invalid_round | invalid_circuit | invalid_results | invalid_fastest_lap |
-invalid_pole | fastest_lap_not_in_results | pole_not_in_results | ambiguous_name | invalid_channel | invalid_request`,
-`404 channel_not_found`, `403 bot_cannot_send`, `502 discord_error`, `504 bot_timeout`. (A failed post never undoes the recorded points:
-see `announce_error`.)
+invalid_pole | fastest_lap_not_in_results | pole_not_in_results | ambiguous_name | invalid_channel | invalid_confirm_duplicate | invalid_request`,
+`404 channel_not_found`, `403 bot_cannot_send`, `409 results_already_recorded`, `502 discord_error`, `504 bot_timeout`. (A failed post never undoes
+the recorded points: see `announce_error`.)
+
+### GET /guilds/{guild_id}/f1/standings/results-ledger
+
+The races recorded **through the app** (see above), newest first. Optional query `season` and `round` (exact, case-insensitive text).
+`{ "entries": [ { "season", "round", "circuit", "recorded_by", "timestamp" } ] }`. Races recorded with `/f1 standings` in Discord are not listed.
+Errors: `400 invalid_season | invalid_round`.
 
 ### GET /guilds/{guild_id}/f1/points-system
 
 ```json
-{ "points": [25, 18, 15, 12, 10, 8, 6, 4, 2, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "pole": 0, "fastest_lap": 1, "is_default": true }
+{ "points": [25, 18, 15, 12, 10, 8, 6, 4, 2, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "pole": 0, "fastest_lap": 1, "is_default": true,
+  "defaults": { "points": [25, 18, 15, 12, 10, 8, 6, 4, 2, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "pole": 0, "fastest_lap": 1 } }
 ```
 
 Always 20 entries (P1 first). `is_default: true` means nothing has been saved and the built-in defaults apply (what the commands use).
+`defaults` is that built-in table (read from the constant the commands fall back to, `_DEFAULT_POINTS_SYSTEM`), always returned — also after a
+custom system was saved — so the app can offer "reset to defaults". The PUT response carries it too.
 
 ### PUT /guilds/{guild_id}/f1/points-system
 
@@ -700,6 +730,265 @@ Response `200`: the same object as the GET plus `announce_error`.
 
 Errors: `403 fia_required | forbidden`, `400 invalid_points | invalid_pole | invalid_fastest_lap | invalid_channel | invalid_request`,
 `404 channel_not_found`, `403 bot_cannot_send`.
+
+---
+
+## Reports and penalties (M3)
+
+Everything here works on the same files as the report buttons and the `/league` penalty commands — `reports.json`,
+`penalty_settings.json`, `penalty_points.json`, `dirty_drivers.json` — through helpers `bot.py` shares with the commands, so Discord and
+the app always agree. **`penalty_settings` and `penalty_points` are two separate files with two separate writers**: no settings write
+touches a driver's points, and no points write (adding, clearing, bans, advancing the race counter, deciding a report) touches the
+settings. (Tests assert both directions.)
+
+Roles — the same as the command or button each endpoint mirrors:
+
+| Needs | Endpoints |
+|---|---|
+| Staff (`FIA`, `STAFF` or Administrator) | everything that reads; deciding a report; adding manual penalty points; the dirty-drivers list |
+| **FIA or Administrator** (`403 fia_required`) | clear penalty points, give/remove a ban, advance the race counter |
+| **Administrator** (`403 admin_required`) | `PUT /f1/penalties/settings` |
+
+Destructive actions (**clear points, give/remove a ban, advance the race counter**) need `"confirm": true` in the body, otherwise
+`400 confirm_required` and nothing is changed. Driver names are free text exactly as in Discord: a driver is looked up by their name
+(trimmed, case-insensitive), not by a Discord ID. Send them as `driver` in the body, or as the `driver` query parameter on `GET`/`DELETE`.
+`season` is optional everywhere and defaults to the **current season** (the penalty settings' `current_season`, else the server
+settings' `season_number`, else 1).
+
+### Reports
+
+A report is created by a driver in Discord (`/f1 report` opens a private thread with the **Penalty Issued / No Further Action** buttons);
+**the API cannot create reports** — the thread flow (private thread, adding the reporter and staff) cannot be mirrored safely.
+
+```json
+{ "id": "9f1c…", "number": 1, "round_key": "S5R3", "season": "5", "round": "3", "circuit": "Zandvoort",
+  "reporter": "alice", "reporter_id": "2001", "drivers_involved": "alice, bob", "lap": "4", "description": "…",
+  "evidence_url": "https://…" | null, "evidence_img": "https://….png" | null,
+  "status": "pending", "status_label": "⏳ Awaiting Review", "decided": false,
+  "penalty": null, "decision": null,
+  "thread_name": "Report #1 - S5R3 - Zandvoort", "message_id": "1234…" | null, "timestamp": "2026-01-01T00:00:00Z" }
+```
+
+* `status` is `pending`, `under_investigation` (legacy button), `penalty_issued` or `no_further_action`; `status_label` is the text
+  `/f1 report-overview` shows. `decided` is true for the last two, and then `decision` is `{ "type": "penalty_issued", "penalty": "5s…" }`.
+* `number` is the "Report #n" of `/f1 report-overview` (position inside its round). `season` and `round` are the text the reporter typed.
+* The "No Further Action" explanation and the penalty points awarded are **not stored in `reports.json`** (the buttons only put them in the
+  Discord embed; the points are in the driver's penalty history), so they cannot be returned here.
+
+### GET /guilds/{guild_id}/f1/reports
+
+Newest first. Query: `season`, `round` (text, as stored), `status` (`pending|under_investigation|penalty_issued|no_further_action`),
+`driver` (substring of "drivers involved", case-insensitive), `limit` (1–100, default 50), `offset`.
+
+Response `200`: `{ "total": 12, "limit": 50, "offset": 0, "reports": [ <report>, … ] }`.
+Errors: `400 invalid_season | invalid_round | invalid_status | invalid_driver | invalid_limit | invalid_offset`.
+
+### GET /guilds/{guild_id}/f1/reports/overview
+
+`/f1 report-overview`. With **both** `season` and `round`: `{ "season", "round", "round_key", "circuit", "count", "reports": [ <report>, … ] }`
+(an empty round is `count: 0`, not an error). With neither: one row per round that has reports —
+`{ "rounds": [ { "season", "round", "round_key", "circuit", "total", "pending", "under_investigation", "penalty_issued", "no_further_action" } ] }`.
+Errors: `400 invalid_season | invalid_round` (also when only one of the two is given).
+
+### GET /guilds/{guild_id}/f1/reports/{report_id}
+
+Response `200`: one report (above). Errors: `400 invalid_report_id`, `404 report_not_found`.
+
+### POST /guilds/{guild_id}/f1/reports/{report_id}/decision
+
+Decides a report with **the effect of the Discord buttons** (staff — the buttons' own check).
+
+```json
+// no further action
+{ "decision": "no_further_action", "explanation": "No infringement found." }
+// penalty issued
+{ "decision": "penalty_issued", "description": "5 second time penalty", "driver": "alice", "penalty_points": 3, "season": 5 }
+```
+
+* `explanation` (1–500) is required for no further action; `description` (1–500) for a penalty. `driver` (1–100, the driver who receives
+  points; required when `penalty_points` > 0), `penalty_points` (0–999, default 0) and `season` (1–99999) are optional; without `season`
+  the season in the report's own title ("🚨 Season 5 Round 3 — …") is used, like the button, then the current season.
+
+What happens, in this order (and what the button does at each step):
+
+1. Nothing is changed until the bot has found the report's Discord message and checked it can post the ban notice in its thread.
+2. The report is **claimed atomically** in `reports.json` (status `Penalty Issued` / `No Further Action`, plus the penalty text). Of two
+   decisions racing for the same report exactly one gets past this point; the other gets `409 already_decided`.
+3. The report embed is edited (status field, "Penalty Details" / "Explanation", colour, "Reviewed by … · Nexus F1 Stewards" footer)
+   and its **buttons are removed**. If this edit fails the claim is rolled back and the error returned: nothing was applied.
+4. If `penalty_points` > 0: the points are saved under the right season in `penalty_points.json` (history entry, expiry =
+   round from the title + `expiry_races`), the **ban thresholds are checked** (`quali_ban_threshold`, `race_ban_threshold`) in the same locked
+   write, the report embed gets its "🔴 Penalty Points" field, and — if a threshold is crossed — the **"🚨 Automatic Ban Notice"
+   embed is posted in the report's own thread**, exactly where the button posts it.
+
+Response `200`:
+
+```json
+{ "decision": "penalty_issued", "report": { …updated report… },
+  "points": { "applied": true, "driver": "alice", "added": 3, "season": 5, "total": 9, "quali_banned": true, "race_banned": false,
+             "ban_notice": "⚠️ **QUALI BAN** — …", "ban_notice_posted": true },
+  "warnings": [] }
+```
+
+`warnings` lists steps that failed **after** the decision was applied (`points_field_failed:<code>`, `ban_notice_failed:<code>`); the
+decision and the points are saved regardless. If no points were given, `points.applied` is `false`.
+
+A report that is already decided (in Discord or through the API) is refused with **`409 already_decided`** and nothing is changed: points
+are never applied twice. (A report in the legacy "Under Investigation" state can still be decided.)
+
+Errors: `400 invalid_report_id | invalid_decision | invalid_explanation | invalid_description | invalid_driver | invalid_penalty_points |
+driver_required | invalid_season | invalid_request`, `404 report_not_found | report_message_not_found`,
+`409 already_decided | penalty_not_configured | report_message_not_found | report_embed_missing`, `400 not_a_bot_message`,
+`403 bot_cannot_send`, `500 penalty_points_failed`, `502 discord_error`, `504 bot_timeout`.
+
+* `penalty_points_failed` (500): the storage failed **after** the report was decided and its embed edited. The report stays decided (a retry gets
+  `409 already_decided`, so nothing can be doubled); add the points with `POST /f1/penalties/points`.
+* `penalty_not_configured` (409): points were requested but `/league penalty-setup` has not been done. The button would decide the report
+  and skip the points with a warning; the API refuses **before changing anything** so the report is not left decided without its points
+  (set the settings first, then decide).
+* `report_message_not_found`: the report's message is not tracked, or was deleted, or its thread is not visible to the bot (reports.json
+  stores the thread **name**, not its channel id, so the bot looks in active threads with that name, then in `#reports`, then in archived
+  threads of `#reports`). An archived thread is reopened before the edit, as Discord refuses edits inside archived threads.
+
+### Penalty settings
+
+### GET /guilds/{guild_id}/f1/penalties/settings
+
+```json
+{ "configured": true, "current_season": 5, "expiry_races": 15, "quali_ban_threshold": 8, "race_ban_threshold": 13,
+  "setup_by": "boss", "setup_at": "2026-01-01T00:00:00Z",
+  "defaults": { "current_season": 1, "expiry_races": 15, "quali_ban_threshold": 8, "race_ban_threshold": 13 } }
+```
+
+Not configured: `configured: false` and `null` values (`current_season` is still the effective season). `defaults` are the values
+`/league penalty-setup` falls back to for an unreadable field.
+
+### PUT /guilds/{guild_id}/f1/penalties/settings
+
+`/league penalty-setup` (**Administrator**). All four fields are required: `{ "current_season": 5, "expiry_races": 15,
+"quali_ban_threshold": 8, "race_ban_threshold": 13 }` — whole numbers, `current_season` 1–99999, the others 1–999. Stores exactly what the
+command stores (`setup_by` / `setup_at` included) in `penalty_settings.json` **only**. Existing penalty points and ban flags are not
+recalculated (as in Discord). Response `200`: the same object as the GET.
+
+Errors: `403 admin_required`, `400 invalid_current_season | invalid_expiry_races | invalid_quali_ban_threshold | invalid_race_ban_threshold | invalid_request`.
+
+### Penalty points
+
+Points live in `penalty_points.json` as `{ guild: { "season_N": { driver_key: { display_name, total_points, history[], quali_banned, race_banned } } } }`;
+`driver_key` is the lower-cased trimmed name. Old servers may still have the flat pre-season layout; it is read as season 1.
+
+### GET /guilds/{guild_id}/f1/penalties/overview
+
+`/league penalty-overview`. Query: `season` (1–99999; default current). Highest total first.
+
+```json
+{ "season": 5, "current_season": 5, "is_current": true,
+  "settings": { "expiry_races": 15, "quali_ban_threshold": 8, "race_ban_threshold": 13 },
+  "drivers": [ { "position": 1, "key": "max_v", "display_name": "Max_V", "total_points": 14, "incidents": 2,
+                 "ban": "race", "quali_banned": true, "race_banned": true, "reported_count": 2 } ] }
+```
+
+`ban` is `race`, `quali` or `none` (a race ban wins). `incidents` counts history items that added points. `reported_count` is the "⚠️ Reported (N)"
+flag: how many dirty-driver reports (below) are on file for that driver (matched by the same driver key).
+Errors: `400 invalid_season`, `404 penalty_not_configured`.
+
+### GET /guilds/{guild_id}/f1/penalties/history
+
+`/league penalty-history`. Query: `driver` (required), `season` (default current). The driver's **whole** history, oldest first (the command
+shows the last 10).
+
+```json
+{ "season": 5, "key": "bob", "display_name": "bob", "total_points": 3, "incidents": 1, "ban": "none", "quali_banned": false, "race_banned": false,
+  "history": [ { "index": 1, "points": 3, "reason": "…", "race": "Season 5 Round 1 — Spa", "expires_after_race": 16, "timestamp": "2026-01-02T03:04:05Z" } ] }
+```
+
+`points` is negative for an admin removal (`expires_after_race: null`). Errors: `400 invalid_driver | invalid_season`, `404 driver_not_found`.
+
+### POST /guilds/{guild_id}/f1/penalties/points
+
+`/f1 penalty` (staff): add penalty points to a driver. Request:
+
+```json
+{ "driver": "Max_V", "penalty_type": "Drive-Through", "points": 3, "reason": "Contact at T1", "season": 5, "channel_id": "777…" }
+```
+
+`driver` (1–100), `penalty_type` (1–100), `reason` (1–300), `points` (0–999), `season` optional, `channel_id` optional. The points are
+added (history entry "Season N — Manual Penalty", expiry = `expiry_races` from round 0, like the command) and the ban thresholds are checked
+in the same locked write. With `channel_id` the public **"⚖️ Stewards Decision — PENALTY ISSUED"** embed is posted there (the command posts
+it in the channel it was used in); without it nothing is posted. The ban text is **returned, not posted** — the command shows it only to the person
+who issued the penalty. `points: 0` records nothing and needs `channel_id` (it only posts the embed).
+The data is written first; a failed post never undoes the points (`announce_error`).
+
+Response `201`:
+
+```json
+{ "driver": "Max_V", "season": 5, "saved": true, "points_added": 3, "total_points": 11, "quali_banned": true, "race_banned": false,
+  "ban_notice": "⚠️ **QUALI BAN** — **Max\\_V** has reached **11** penalty points …" | null,
+  "posted": { "channel_id": "777…", "message_id": "…" } | null, "announce_error": null }
+```
+
+Errors: `400 invalid_driver | invalid_penalty_type | invalid_reason | invalid_points | invalid_season | invalid_channel | nothing_to_do | invalid_request`,
+`404 channel_not_found`, `403 bot_cannot_send`, `409 penalty_not_configured` (the command would post the embed and silently not record the points).
+
+### POST /guilds/{guild_id}/f1/penalties/clear
+
+`/league clear-penalty` (**FIA or Administrator**, needs `"confirm": true`). Request: `{ "driver": "alice", "points": 3, "reason": "Appeal upheld",
+"season": 5, "confirm": true }`. Without `points` **all** of the driver's points and history for that season are cleared and both bans lifted;
+with `points` (1–99999) that many are removed (never below 0), the history is kept with an "Admin removed N pts" entry, and the ban flags are
+recalculated against the settings. `reason` is required (1–300). Writes `penalty_points.json` only — the season settings are untouched.
+
+Response `200`: `{ "driver", "season", "mode": "all" | "partial", "points_removed", "remaining" }`.
+Errors: `403 fia_required`, `400 invalid_driver | invalid_reason | invalid_points | invalid_season | confirm_required`, `404 driver_not_found`.
+
+### POST /guilds/{guild_id}/f1/penalties/bans
+
+`/league ban-manage` (**FIA or Administrator**, needs `"confirm": true`). Request: `{ "driver": "alice", "ban_type": "quali" | "race",
+"action": "give" | "remove", "season": 5, "reason": "…", "confirm": true }`. `give` sets the flag (creating the driver's record for that
+season if they have none); `remove` clears it and keeps the points. `reason` is optional (≤ 300), not stored (Discord shows it only in its reply);
+it is in the audit log. A driver record created by `give` is exactly the record the command creates (including an empty `history` list).
+
+Response `200`: `{ "driver", "season", "action", "ban_type", "quali_banned", "race_banned", "total_points" }`.
+Errors: `403 fia_required`, `400 invalid_driver | invalid_action | invalid_ban_type | invalid_reason | invalid_season | confirm_required`, `404 driver_not_found` (remove only).
+
+### POST /guilds/{guild_id}/f1/penalties/advance-race
+
+`/league advance-race` (**FIA or Administrator**, needs `"confirm": true`). Request: `{ "race_number": 6, "confirm": true }` (0–9999). Removes, for the
+**current season**, every history item whose `expires_after_race` ≤ `race_number` (admin removals never expire), lowers the totals and
+recalculates the ban flags. Requires the penalty settings. Nothing is posted to Discord.
+
+Response `200`: `{ "race_number", "season", "expired": [ { "key", "display_name", "points", "race" } ], "updated": [ { "key", "display_name", "old_total", "new_total" } ] }`.
+Errors: `403 fia_required`, `400 invalid_race_number | confirm_required`, `409 penalty_not_configured`.
+
+> `/league advance-race` uses the same shared helper and now saves its result too (before, it reported expiry but never saved it, and
+> crashed on a partial clear in a driver's history).
+
+### Dirty drivers
+
+Staff-only misconduct reports (`/league report-driver`, `dirty-drivers`, `driver-history`, `remove-report`) in `dirty_drivers.json`:
+`{ guild: { driver_key: { display_name, reports: [ { reason, evidence, reported_by, related_incident, timestamp } ] } } }`.
+
+### GET /guilds/{guild_id}/f1/dirty-drivers
+
+Drivers that have reports, most recently reported first:
+`{ "drivers": [ { "key": "max_v", "display_name": "Max_V", "report_count": 2, "latest": { "reason", "evidence", "reported_by", "related_incident", "timestamp" } } ] }`.
+
+### GET /guilds/{guild_id}/f1/dirty-drivers/history
+
+Query: `driver` (required). `{ "key", "display_name", "total", "reports": [ { "index": 1, "reason", "evidence", "reported_by", "related_incident", "timestamp" } ] }` —
+`index` is the number `remove-report` takes. Errors: `400 invalid_driver`, `404 driver_not_found`.
+
+### POST /guilds/{guild_id}/f1/dirty-drivers/reports
+
+`/league report-driver`. Request: `{ "driver": "Bob_B", "reason": "Rammed him on purpose", "evidence_url": "https://…", "related_incident": "Race 5 — Silverstone" }`.
+`driver` 1–100, `reason` 1–1000, `evidence_url` 1–300 and starting with `http://` or `https://` (no spaces), `related_incident` optional ≤ 200.
+`reported_by` is the staff member's Discord name, set by the server. Response `201`: `{ "display_name", "total_reports", "report": { "index", … } }`.
+Errors: `400 invalid_driver | invalid_reason | invalid_evidence_url | invalid_related_incident | invalid_request`.
+
+### DELETE /guilds/{guild_id}/f1/dirty-drivers/reports/{index}
+
+`/league remove-report`. Query: `driver` (required). Removes report number `index` (1-based, as in the history); removing a driver's last report
+removes the driver from the list. Response `200`: `{ "ok": true, "display_name", "removed_index", "driver_removed", "removed": { … } }`.
+Errors: `400 invalid_driver`, `404 report_not_found`.
 
 ---
 
@@ -719,8 +1008,8 @@ Errors: `403 fia_required | forbidden`, `400 invalid_points | invalid_pole | inv
 
 ### Things that cannot be done through the API (M2)
 
-* **No per-race results are stored**, so a race cannot be recorded "idempotently", and recorded races cannot be listed or reversed.
-  Recording twice adds twice (see *Record results*).
+* **No per-race results are stored in the standings**, so a recorded race cannot be reversed, and the duplicate guard only knows the races
+  recorded through the app (the results ledger). Recording twice (with `confirm_duplicate`) adds twice, like the command.
 * **`/league update-points`** (the older command with a hard-coded points table that ignores the configured points system) is not
   exposed: `POST /f1/standings/results` is the `/f1 standings` flow, which uses the points system. Both write the same `driver_points`.
 * **Deleting a team** — there is no slash command for it, so there is no endpoint.
@@ -728,3 +1017,28 @@ Errors: `403 fia_required | forbidden`, `400 invalid_points | invalid_pole | inv
 * **The in-progress `/f1 calendar` wizard** (calendar name + number of rounds, then one round at a time) is a Discord conversation;
   the API adds, edits and removes rounds directly instead. `setup_in_progress` tells you when a wizard is open.
 
+### Things that cannot be done through the API (M3)
+
+* **Creating a report.** Reports are filed by drivers with `/f1 report`; the private-thread flow (create the thread, add the reporter, the
+  named drivers and all staff, post the buttons) cannot be mirrored safely, and the app has no "reporter" to attribute it to.
+* **Returning the "No Further Action" explanation or the awarded points for a decided report** — they exist only in the Discord embed (and, for
+  points, in the driver's penalty history); `reports.json` does not store them and the schema was not extended.
+* **Announcing a ban in a channel when points are added manually.** `/f1 penalty` only tells the issuer; the API returns `ban_notice` and posts nothing.
+  (A ban reached through a **report decision** is announced in the report thread, exactly like the button.)
+* **Posting the advance-race summary.** `/league advance-race` replies publicly in its channel; the API returns the same data as JSON instead.
+* **Bot statistics and the dashboard activity feed** (`stats[...]`, `push_log`) that the commands bump are not touched by the API; every app write goes to
+  the app's own audit log instead (`data/app_activity_log.json`).
+* **Locating a report message whose thread was deleted** — the decision is refused (`report_message_not_found`) rather than guessed.
+
+### Command bugs found during M3
+
+* **`/league advance-race`** (fixed): it used to compute the expiry on one copy of the data and save another, so the totals never changed,
+  and it raised `TypeError` for a driver whose history holds a partial-clear entry. It now shares the API's helper: the result is saved and
+  items without an expiry (admin removals) are skipped.
+* **`/league ban-manage give`** (fixed): it used to create a driver record without a `history` list (it had a `penalties` list instead), so the next
+  command or button that added points to that driver raised `KeyError`. New records now carry an empty `history`, and the shared add-points helper
+  repairs older records without one (for the commands, the report button and the API alike). Overviews and histories never needed it.
+* **The "No Further Action" explanation** (fixed): it used to go into the report embed unescaped (underscores could turn into italics). It is now
+  escaped like every other user text, in the Discord button and in the API alike.
+* **The report buttons can still be clicked while the API is deciding the same report** (a Discord modal already open) — the second decision then
+  edits the embed again; the API's own atomic claim only protects API-vs-API and API-vs-already-decided.
