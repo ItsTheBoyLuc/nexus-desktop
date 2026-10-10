@@ -290,3 +290,4 @@ th[aria-sort='ascending'] .sort-btn, th[aria-sort='descending'] .sort-btn { colo
   .division-grid { grid-template-columns: minmax(0, 1fr); }
   .attendance-columns { grid-template-columns: minmax(0, 1fr); }
 }
+.answers__row { display: contents; }

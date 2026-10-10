@@ -219,3 +219,7 @@ export function useSignupQuestions(guildId: string | undefined): Loaded<SignupQu
 export function useSignups(guildId: string | undefined): Loaded<Signup[]> {
   return useApiData(guildId ? `league-signups:${guildId}:list` : null, () => unwrap(window.nexus.api.signups(guildId ?? '')), false)
 }
+
+export function useSignup(guildId: string | undefined, signupId: string | null): Loaded<Signup> {
+  return useApiData(guildId && signupId ? `league-signups:${guildId}:one:${signupId}` : null, () => unwrap(window.nexus.api.signup(guildId ?? '', signupId ?? '')), false)
+}

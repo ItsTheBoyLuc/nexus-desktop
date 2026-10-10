@@ -7,9 +7,9 @@ import type { Person } from '../components'
 import { useWriteAction } from '../hooks/useWriteAction'
 import { describeError, errorCode, unwrap, writeProblem } from '../lib/errors'
 import type { WriteProblem } from '../lib/errors'
+import { describeOverlap, LEFT_SERVER_NAME, overlapNames, OVERLAP_EXPLANATION } from '../lib/attendanceView'
 import { invalidateAttendance } from '../lib/invalidation'
 
-const LEFT = 'A member who left the server'
 
 interface DivisionDialogProps {
   guildId: string
@@ -17,10 +17,6 @@ interface DivisionDialogProps {
   division: AttendanceDivision | null
   onClose: () => void
 }
-
-/** What a driver who is in both lists means in Discord, said wherever the overlap is shown. */
-export const OVERLAP_EXPLANATION =
-  'A driver in both lists is marked Present automatically when a post is created, and the Present button in Discord then refuses them, because a reserve driver may only use Reserve. The command has no rule against it and neither does the API, so it is stored as you set it.'
 
 /**
  * Create or edit a division (/f1 attendance-setup): the name and two lists of members, chosen by name. Only a list the user
@@ -45,7 +41,7 @@ export function DivisionDialog({ guildId, division, onClose }: DivisionDialogPro
 
   // Names the server already sent, then the people picked just now.
   const serverNames = new Map<string, string | null>([...(division?.regularDrivers ?? []), ...(division?.reserveDrivers ?? [])].map((driver) => [driver.userId, driver.name]))
-  const nameOf = (id: string): string => people.get(id)?.displayName ?? serverNames.get(id) ?? LEFT
+  const nameOf = (id: string): string => people.get(id)?.displayName ?? serverNames.get(id) ?? LEFT_SERVER_NAME
   const known = [...(division?.regularDrivers ?? []), ...(division?.reserveDrivers ?? [])].flatMap((driver): Person[] => (driver.name ? [{ id: driver.userId, displayName: driver.name, username: driver.name }] : []))
 
   const result = validateDivisionDraft({ name, regular, reserve, regularEdited, reserveEdited, exists: editing })
@@ -82,14 +78,14 @@ export function DivisionDialog({ guildId, division, onClose }: DivisionDialogPro
   }
 
   if (saved) {
-    const names = new Map([...saved.division.regularDrivers, ...saved.division.reserveDrivers].map((driver) => [driver.userId, driver.name ?? nameOf(driver.userId)]))
+    const names = overlapNames(saved, (id) => people.get(id)?.displayName ?? null)
     return (
       <Modal key="overlap" open title="Some drivers are in both lists" onClose={onClose} footer={<Button data-autofocus onClick={onClose}>Close</Button>}>
         <Notice tone="warning">
-          <strong>The division {saved.division.name} was saved, but {saved.overlap.length === 1 ? 'one driver is' : `${saved.overlap.length} drivers are`} in both the regular and the reserve list:</strong>
+          <strong>{describeOverlap(saved, (id) => people.get(id)?.displayName ?? null)}</strong>
           <ul className="plain-list">
-            {saved.overlap.map((id) => (
-              <li key={id}>{names.get(id) ?? nameOf(id)}</li>
+            {names.map((name, index) => (
+              <li key={`${index}-${name}`}>{name}</li>
             ))}
           </ul>
         </Notice>
