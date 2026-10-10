@@ -7,8 +7,9 @@ goes through that backend, so this app holds **no secrets**.
 Scope so far: Discord login, server list, game picker with **Enable game**, and the server-level screens
 **Overview**, **Games & Tiers** (tiers with live driver counts, sign-up panels), **Settings** (embed colour,
 footer, season; read-only up front for non-administrators) and **Announcement** (milestone 1), plus the
-Formula 1 league screens **Calendar**, **Teams** and **Standings** (milestone 2, described below). Reports,
-Penalties, Dirty drivers, Attendance, Sign-ups and the Esports team pages show "Coming in the next phase".
+Formula 1 league screens **Calendar**, **Teams** and **Standings** (milestone 2) and **Reports**, **Penalties**
+and **Dirty drivers** (milestone 3), all described below. Attendance, Sign-ups and the Esports team pages show
+"Coming in the next phase".
 Every call follows `docs/APP_API.md`, the contract copied from the backend repo.
 
 ### Formula 1 league (milestone 2)
@@ -17,15 +18,23 @@ Every call follows `docs/APP_API.md`, the contract copied from the backend repo.
 | --- | --- |
 | Calendar | Rounds with date, time, flag and event type (Normal Race, Sprint Weekend, Full Qualifying), TBD states, search/sort/filter. Add, edit and delete a round (validated like the backend; numbers are shown as returned, a deleted round leaves a gap). "Next race" card. **Post to Discord** with a searchable channel picker; **Update posted calendar** is offered only while this app remembers the message id, and falls back to *Post new* when Discord says the message is gone. |
 | Teams | Team list (colour swatch, abbreviation) and detail with roster, driver numbers and driver stats. Create a team (Discord role + private channel), add a driver with a member search (no IDs), remove a driver (the confirm dialog names the team role and says the points remain). Teams cannot be edited or deleted: the API has no endpoint. |
-| Standings | WDC and WCC tables as the API returns them, **Enter race results**, and the **points system** editor (P1 to P20, pole, fastest lap). No season selector and no "reset to defaults": the API offers neither a season parameter nor a documented defaults list. |
+| Standings | WDC and WCC tables as the API returns them, **Enter race results** (with an optional results channel), and the **points system** editor (P1 to P20, pole, fastest lap, **Reset to defaults**). No season selector: the API has no season parameter for the standings. |
 
 Rules worth knowing:
 
-- **Recording a race adds its points every time.** The server keeps running totals only and cannot detect a
-  repeat. The app keeps a local ledger (server, season, round, circuit, time) and warns, with *Cancel* as the
-  default focus, before the same server + season + round is recorded again. The ledger only knows races
-  recorded **in this app on this computer**; results entered through Discord commands or on another device
-  are unknown to it (the form says so permanently).
+- **Recording a race adds its points every time**, and since milestone 3 the **server** keeps the duplicate
+  guard: before saving, the form reads `GET standings/results-ledger`; if the same season and round is on it
+  (compared as trimmed, case-insensitive text), or the POST answers `409 results_already_recorded`, a warning
+  dialog opens (*Cancel* is the default focus) and only after confirming is the request sent again with
+  `confirm_duplicate: true`. The app's own local ledger is only the **fallback** when the server's ledger cannot
+  be read. **Races recorded with the Discord command `/f1 standings` are in neither ledger** (the form says so
+  permanently).
+- **Optional results channel.** "Post results to a channel" is a searchable picker; the default is no channel.
+  `invalid_channel`, `channel_not_found`, `bot_cannot_send` and `forbidden` are answered before anything is
+  recorded and are shown under the picker, naming what is wrong. If only the post fails afterwards, the points
+  stay recorded and the result screen says so (`announce_error`).
+- **Reset to defaults** fills the points form from the server's built-in table (`defaults` of
+  `GET points-system`); nothing is saved until Save is pressed.
 - After a timeout or a lost answer on the results request the form locks and only **Refresh standings** is
   offered: the results may already be recorded and are never offered for sending again.
 - Recording results and saving the points system need the FIA role or Administrator (`403 fia_required`);
@@ -35,12 +44,51 @@ Rules worth knowing:
 - Not offered, because the API does not expose them: team edit/delete, `/league update-points`, the
   in-progress `/f1 calendar` wizard, listing or reversing recorded races.
 
+### Reports, penalties and dirty drivers (milestone 3)
+
+| Screen | What it does |
+| --- | --- |
+| Reports | Table with server-side filters (season, round, status, driver), search and sort on the loaded reports, "Load more" for long lists, a **By season and round** overview, and a detail view with every field the API returns, the evidence link and the evidence image. **Decide this report**: *Penalty issued* (description, penalty points, driver, season) or *No further action* (explanation), then a confirm step that names the report and says what happens in Discord. There is no "create report": drivers file them in Discord with `/f1 report`. |
+| Penalties | **Overview** per season (current by default) with points, incidents, ban status and the *Reported (N)* flag; a **driver history** with every entry. Actions: add manual points, clear points (some or all), give or remove a qualifying or race ban, advance race. **Settings** tab: season, expiry and ban thresholds (Administrator). |
+| Dirty drivers | Private list of misconduct reports with search and sort, a driver view, **Add a report** (reason, evidence link, optional related incident) and **Remove** by report number. Marked as private to the server's staff. |
+
+Rules worth knowing:
+
+- **Roles.** Staff can read, decide reports, add manual points and use the dirty-driver screens. Clearing points,
+  bans and advance race need FIA or Administrator (`403 fia_required`); the penalty settings need Administrator
+  (`403 admin_required`; `GET /settings` `can_edit` makes that form read-only up front). On a refusal the action is
+  switched off, the data stays readable, and the message names the role.
+- **A decision is sent once.** `409 already_decided` (decided meanwhile, maybe in Discord) refreshes the report;
+  `409 penalty_not_configured` is a blocking message with a button to the Penalty settings (nothing changed);
+  `report_message_not_found` means the bot cannot find the report's message or thread (nothing changed);
+  `500 penalty_points_failed` means the report **is** decided but the points are not saved: a warning with
+  **Add the points now** opens the manual points dialog prefilled with driver, points and season, and the
+  decision is never resent. After a lost answer (timeout, dropped connection, 5xx) the report may be decided: only
+  **Refresh the report** is offered and deciding stays off until it was read again.
+- **What the API does not return**: the explanation of a *No further action* decision and the points a decision
+  awarded. The app shows the status and the penalty text it gets and says the full decision text is in the Discord
+  report message. A Discord decision window that was already open can still be submitted after the app decided a
+  report (the helper text beside the button says so).
+- **Manual points never announce a ban.** When a threshold is reached the server returns the ban text; the app shows
+  "A ban threshold was reached. Nothing has been announced in Discord." with **Copy** and an optional **Post as
+  announcement** (channel picker and the usual confirm, through the server-level announcement endpoint).
+- **Clear, bans and advance race** each have a confirm dialog that names the driver, the season and the effect and
+  sends `confirm: true`; the API client refuses to send these three without it. Advance race says that expired
+  points are removed permanently.
+- **Dirty-driver removal goes by number**, and the numbers move up after a removal. So the app reads the driver's
+  history again first and only removes the report if it is still the one you confirmed, and a removal whose answer
+  was lost is never repeated.
+- **Untrusted text.** Reasons, descriptions, explanations and driver names are rendered as plain text, never as
+  HTML. Evidence links open only if they are https links on the external-link allowlist (otherwise the app says so
+  and offers **Copy**); an evidence image is rendered only when it is https **and** on Discord's CDN (the
+  content-security policy allows no other image host), otherwise it is offered as a link.
+
 ## Scripts
 
 | Command | What it does |
 | --- | --- |
 | `npm run dev` | Electron + hot reload (electron-vite dev) |
-| `npm run dev:mock` | Renderer only, in a normal browser (the port is printed, usually http://localhost:5174) with a **fake, stateful** bridge (no Discord login). Query `?scenario=signedout\|denied\|expired\|empty\|error\|slow\|nogames\|notadmin\|norounds\|nobotperms\|nofia\|lostresults` shows other states: `nogames` = no game enabled, `notadmin` = staff but not Administrator (settings are read-only, admin-level roles return `role_too_privileged`), `norounds` = no calendar yet, `nobotperms` = the bot lacks permissions, `nofia` = no FIA role (`fia_required`), `lostresults` = every results request loses its answer. The headers of `src/renderer/mock/installMock.ts` and `f1Mock.ts` list the sample data (8 rounds, 24 rounds, a deleted calendar message, a team without drivers, a round already in the ledger, a circuit named *ambiguous* or *timeout*, ...). |
+| `npm run dev:mock` | Renderer only, in a normal browser (the port is printed, usually http://localhost:5174) with a **fake, stateful** bridge (no Discord login). Query `?scenario=signedout\|denied\|expired\|empty\|error\|slow\|nogames\|notadmin\|norounds\|nobotperms\|nofia\|lostresults` shows other states: `nogames` = no game enabled, `notadmin` = staff but not Administrator (settings are read-only, admin-level roles return `role_too_privileged`), `norounds` = no calendar yet, `nobotperms` = the bot lacks permissions, `nofia` = no FIA role (`fia_required`), `lostresults` = every results request loses its answer, `noledger` = the server's results ledger cannot be read (the local fallback is used), and for milestone 3 `noreports`, `nopenaltyconfig` (penalty rules never set up: `penalty_not_configured`), `nostaff` (every report, penalty and dirty-driver call answers 403), `lostdecisions` (every decision is applied, then its answer is lost) and `nodirty`. The headers of `src/renderer/mock/installMock.ts`, `f1Mock.ts` and `stewardMock.ts` list the sample data and the hooks (60 reports in Midnight GT, a report decided in Discord meanwhile, a report whose thread is gone, a description containing *points-fail* or *timeout*, a driver one point below a ban threshold, the channels `#bot-locked` and `#staff-only-hidden`, a circuit named *late-duplicate*, ...). |
 | `npm run typecheck` / `npm run lint` / `npm test` | tsc (strict), ESLint, Vitest |
 | `npm run build` | typecheck + bundle; fails if the mock flag is on or mock code is in `out/` |
 | `npm run dist` | `build` + Windows installer (NSIS) and portable `.exe` in `dist/` |
@@ -73,7 +121,8 @@ src/shared    Types, IPC channel names, CSP and the validation shared by both si
 
 - the **message id of every sign-up panel** it posted (`panels`),
 - the **message id of the calendar** it posted, per server (`calendarPosts`),
-- a **ledger of recorded races** (`ledger`: server, season, round, circuit, time).
+- a **ledger of recorded races** (`ledger`: server, season, round, circuit, time), now only the fallback of the
+  server's own results ledger.
 
 Only the main process writes them, and only after the API confirmed the outcome (`src/main/panelService.ts`,
 `src/main/f1Service.ts`); the renderer cannot add or wipe them, and a timeout, a lost answer or a refusal
@@ -93,6 +142,7 @@ after every write instead of patching local state.
   no network from the renderer at all). `window.open` and in-app navigation are denied; external
   links open in the system browser only for `https` URLs on an allowlist (`discord.com`,
   `nexus-b67.pages.dev`, the API host). Every web permission request is denied. Single instance.
+  The only clipboard access is a main-process `copyText` (plain text, at most 4000 characters, write only).
 - Login: Authorization Code + **PKCE**. A temporary server on `127.0.0.1:<random port>/callback`
   receives the redirect (constant-time state check, Host header check, single use, 5 minute timeout).
 - Tokens: the access token lives in main-process memory only. Only the refresh token is stored,
