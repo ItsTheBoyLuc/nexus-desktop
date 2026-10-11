@@ -2,8 +2,8 @@ import { LogIn, RotateCw } from 'lucide-react'
 import { Navigate } from 'react-router-dom'
 import { PRIVACY_URL, TERMS_URL } from '../../shared/constants'
 import type { SignedOutReason } from '../../shared/types'
-import { Button, Card, ExternalLink, Logo, Notice } from '../components'
-import { useAuth } from '../hooks/auth'
+import { Button, Card, ExternalLink, Logo, Notice, WakingNote } from '../components'
+import { useApiStatus, useAuth } from '../hooks/auth'
 import { Splash } from '../layout/AppShell'
 
 const MESSAGES: Record<SignedOutReason, { tone: 'info' | 'danger'; text: string }> = {
@@ -19,6 +19,7 @@ const MESSAGES: Record<SignedOutReason, { tone: 'info' | 'danger'; text: string 
 
 export function Login() {
   const { state, login, cancelLogin, retrySession } = useAuth()
+  const apiStatus = useApiStatus()
 
   if (state.status === 'loading') return <Splash />
   if (state.status === 'signed-in') return <Navigate to="/" replace />
@@ -30,11 +31,12 @@ export function Login() {
   return (
     <main className="login">
       <Card className="login__card">
-        <Logo size={64} label="Nexus" />
+        <Logo size={64} label="Nexus" animated />
         <h1 className="login__title">Nexus</h1>
         <p className="login__tagline">Run your racing league from your desktop. Sign in with Discord to manage your servers.</p>
 
         {message ? <Notice tone={message.tone}>{message.text}</Notice> : null}
+        {apiStatus === 'waking' ? <WakingNote /> : null}
 
         {signingIn ? (
           <>

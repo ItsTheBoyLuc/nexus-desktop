@@ -1,9 +1,9 @@
-import { CircleCheck, RotateCw, Send } from 'lucide-react'
+import { RotateCw, Send } from 'lucide-react'
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { ANNOUNCEMENT_LIMITS, validateAnnouncement } from '../../shared/validation'
 import type { AnnouncementDraft, AnnouncementField } from '../../shared/validation'
-import { Button, Card, EmptyState, LoadingRegion, Modal, Notice, PageHeader, Select, Skeleton, TextField, useToast } from '../components'
+import { Button, Card, EmptyState, LoadingRegion, Modal, Notice, PageHeader, Select, Skeleton, SuccessMark, TextField, useToast } from '../components'
 import { useGuildChannels } from '../hooks/data'
 import { describeError, mayHaveSucceeded, unwrap } from '../lib/errors'
 import { useServer } from './ServerRoute'
@@ -75,7 +75,7 @@ export function Announcement() {
 
       {phase === 'done' ? (
         <Card className="success-panel">
-          <CircleCheck size={40} aria-hidden="true" className="success-panel__icon" />
+          <SuccessMark size={40} className="success-panel__icon" />
           <h2>Announcement posted</h2>
           <p>It was sent to #{postedTo} in {guild.name}.</p>
           <Button onClick={startAnother}>Post another</Button>

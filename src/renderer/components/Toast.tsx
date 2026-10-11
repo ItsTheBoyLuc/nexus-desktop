@@ -1,7 +1,9 @@
-import { CircleAlert, CircleCheck, Info, X } from 'lucide-react'
+import { CircleAlert, Info, X } from 'lucide-react'
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { createPortal } from 'react-dom'
+import { motion } from '../theme/tokens'
+import { SuccessMark } from './SuccessMark'
 
 export type ToastTone = 'info' | 'success' | 'danger'
 
@@ -17,7 +19,8 @@ interface ToastApi {
 }
 
 const ToastContext = createContext<ToastApi | null>(null)
-const AUTO_DISMISS_MS = 6000
+/** Same token as the progress bar (--motion-toast), so the bar runs out exactly when the toast goes. */
+const AUTO_DISMISS_MS = Number.parseInt(motion.toast, 10)
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<ToastItem[]>([])
@@ -51,10 +54,10 @@ function ToastView({ item, onDismiss }: { item: ToastItem; onDismiss: (id: numbe
     return () => window.clearTimeout(timer)
   }, [item.id, onDismiss])
 
-  const Icon = item.tone === 'success' ? CircleCheck : item.tone === 'danger' ? CircleAlert : Info
+  const Icon = item.tone === 'danger' ? CircleAlert : Info
   return (
     <div className={`toast toast--${item.tone}`} role={item.tone === 'danger' ? 'alert' : 'status'}>
-      <Icon className="toast__icon" size={18} aria-hidden="true" />
+      {item.tone === 'success' ? <SuccessMark className="toast__icon" size={18} /> : <Icon className="toast__icon" size={18} aria-hidden="true" />}
       <div className="toast__body">
         <div className="toast__title">{item.title}</div>
         {item.message ? <div className="toast__message">{item.message}</div> : null}
@@ -62,6 +65,7 @@ function ToastView({ item, onDismiss }: { item: ToastItem; onDismiss: (id: numbe
       <button type="button" className="btn btn--ghost btn--sm btn--icon" aria-label="Dismiss notification" onClick={() => onDismiss(item.id)}>
         <X size={16} aria-hidden="true" />
       </button>
+      <span className="toast__progress" aria-hidden="true" />
     </div>
   )
 }

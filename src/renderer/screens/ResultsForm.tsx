@@ -1,10 +1,10 @@
-import { ArrowDown, ArrowUp, CircleCheck, Plus, RotateCw, Trash2 } from 'lucide-react'
+import { ArrowDown, ArrowUp, Plus, RotateCw, Trash2 } from 'lucide-react'
 import { useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { RESULT_LIMITS, validateResultsDraft } from '../../shared/f1Validation'
 import type { ResultsField } from '../../shared/f1Validation'
 import type { RaceOutcome } from '../../shared/types'
-import { Badge, Button, Card, MemberPicker, Modal, Notice, SearchSelect, TextField, useToast } from '../components'
+import { Badge, Button, Card, MemberPicker, Modal, Notice, SearchSelect, SuccessMark, TextField, useToast } from '../components'
 import type { Person, SearchOption } from '../components'
 import { useGuildChannels } from '../hooks/data'
 import { useSettings } from '../hooks/settings'
@@ -213,7 +213,7 @@ export function ResultsForm({ guildId, defaultSeason, known, denied, onDenied, o
     return (
       <Card className="stack">
         <div className="success-heading">
-          <CircleCheck size={22} aria-hidden="true" />
+          <SuccessMark size={22} className="success-heading__icon" />
           <h2>Results recorded</h2>
         </div>
         <p>

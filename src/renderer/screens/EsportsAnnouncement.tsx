@@ -1,10 +1,10 @@
-import { CircleCheck, ExternalLink as ExternalIcon, Send } from 'lucide-react'
+import { ExternalLink as ExternalIcon, Send } from 'lucide-react'
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { ANNOUNCEMENT_LIMITS, validateAnnouncement } from '../../shared/validation'
 import type { AnnouncementDraft, AnnouncementField } from '../../shared/validation'
 import type { AnnouncementResult } from '../../shared/types'
-import { Button, Card, CopyButton, EmptyState, LoadingRegion, Modal, Notice, PageHeader, SearchSelect, Skeleton, TextField, useToast } from '../components'
+import { Button, Card, CopyButton, EmptyState, LoadingRegion, Modal, Notice, PageHeader, SearchSelect, Skeleton, SuccessMark, TextField, useToast } from '../components'
 import { useAuth } from '../hooks/auth'
 import { useGuildChannels, useServerSettings } from '../hooks/data'
 import { useManagerDenied } from '../hooks/useFiaDenied'
@@ -124,7 +124,7 @@ function AnnouncementScreen({ ctx }: { ctx: EsportsContext }) {
 
       {phase === 'done' && posted ? (
         <Card className="success-panel">
-          <CircleCheck size={40} aria-hidden="true" className="success-panel__icon" />
+          <SuccessMark size={40} className="success-panel__icon" />
           <h2>Announcement posted</h2>
           <p>
             It was sent to {channelName(posted.channelId) ? <strong>#{channelName(posted.channelId)}</strong> : 'the channel you chose'} in {ctx.guild.name}.
