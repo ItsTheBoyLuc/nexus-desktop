@@ -1,6 +1,6 @@
 import type { Parsed } from './inputs'
-import { isRacingGame, teamNameProblem, validateRacingEventDraft, validateRacingPage, validateRacingTeamDraft, validateRosterAddDraft } from './racingValidation'
-import type { RacingEventInput, RacingGame, RacingTeamInput, RosterAddInput } from './types'
+import { isRacingGame, teamNameProblem, validateRacingAttendanceDraft, validateRacingEventDraft, validateRacingPage, validateRacingResultDraft, validateRacingResultQuery, validateRacingTeamDraft, validateRosterAddDraft } from './racingValidation'
+import type { RacingAttendanceInput, RacingEventInput, RacingGame, RacingResultInput, RacingResultQuery, RacingTeamInput, RosterAddInput } from './types'
 import { isValidSnowflake } from './validation'
 
 /**
@@ -60,4 +60,27 @@ export function parseRacingPage(input: unknown): Parsed<{ limit?: number; offset
   const page = validateRacingPage(record['limit'], record['offset'])
   if (!page.ok) return page
   return { ok: true, value: { ...(page.limit !== undefined ? { limit: page.limit } : {}), ...(page.offset !== undefined ? { offset: page.offset } : {}) } }
+}
+
+export function parseRacingResultInput(input: unknown): Parsed<RacingResultInput> {
+  const record = isRecord(input) ? input : {}
+  const result = validateRacingResultDraft({
+    team: text(record['team']),
+    eventName: text(record['eventName']),
+    result: text(record['result']),
+    drivers: text(record['drivers']),
+    notes: text(record['notes'])
+  })
+  return result.ok ? result : { ok: false, message: firstError(result.errors) }
+}
+
+export function parseRacingResultQuery(input: unknown): Parsed<RacingResultQuery> {
+  const record = isRecord(input) ? input : {}
+  return validateRacingResultQuery(record['team'], record['limit'], record['offset'])
+}
+
+export function parseRacingAttendanceInput(input: unknown): Parsed<RacingAttendanceInput> {
+  const record = isRecord(input) ? input : {}
+  const result = validateRacingAttendanceDraft({ channelId: text(record['channelId']), name: text(record['name']), date: text(record['date']), description: text(record['description']) })
+  return result.ok ? result : { ok: false, message: firstError(result.errors) }
 }

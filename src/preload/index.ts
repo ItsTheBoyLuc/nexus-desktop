@@ -98,6 +98,8 @@ const bridge: NexusBridge = {
     racingDriver: (guildId, game, userId) => ipcRenderer.invoke(IPC.apiRacingDriver, guildId, game, userId),
     racingEvents: (guildId, game, page) => ipcRenderer.invoke(IPC.apiRacingEvents, guildId, game, page),
     addRacingEvent: (guildId, game, input) => ipcRenderer.invoke(IPC.apiRacingEventAdd, guildId, game, input),
+    racingResults: (guildId, game, query) => ipcRenderer.invoke(IPC.apiRacingResults, guildId, game, query),
+    logRacingResult: (guildId, game, input) => ipcRenderer.invoke(IPC.apiRacingResultLog, guildId, game, input),
     getStatus: () => ipcRenderer.invoke(IPC.apiGetStatus),
     onStatusChange: (callback) => subscribe<ApiStatus>(IPC.apiStatusChanged, callback)
   },

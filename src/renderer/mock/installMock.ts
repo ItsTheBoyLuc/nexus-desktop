@@ -19,7 +19,7 @@
  *   norounds | nobotperms | nofia | lostresults | noledger   F1 league cases, see mock/f1Mock.ts
  *   noreports | nopenaltyconfig | nostaff | lostdecisions | nodirty   reports and penalties, see mock/stewardMock.ts
  *   nodivisions | nosignups | noconfirmperms | nomanagechannels | ambiguousconfirm | lostcreates   attendance and sign-ups, see mock/attendanceMock.ts
- *   noracingteams | nomanage | nomanageroles | lostracing   esports teams of the five games, see mock/racingMock.ts
+ *   noracingteams | nomanage | nomanageroles | lostracing | noresults   esports teams of the five games, see mock/racingMock.ts
  *   notadmin                       staff only, not Administrator: saving settings returns 403
  *                                  admin_required and linking an admin-level role returns
  *                                  403 role_too_privileged

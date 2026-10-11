@@ -1,5 +1,5 @@
 import { isRealDate } from './f1Validation'
-import type { RacingEventInput, RacingGame, RacingRole, RacingTeamInput, RosterAddInput } from './types'
+import type { RacingAttendanceInput, RacingEventInput, RacingGame, RacingResultInput, RacingResultQuery, RacingRole, RacingTeamInput, RosterAddInput } from './types'
 import { GAME_KEYS, isGameKey, isRacingRole } from './types'
 import { codePointLength, isValidHexColor, isValidSnowflake, singleLineProblem } from './validation'
 import type { FormResult } from './validation'
@@ -19,6 +19,12 @@ export const RACING_LIMITS = {
   timeMax: 20,
   classMax: 30,
   notesMax: 300,
+  resultEventMax: 100,
+  resultMax: 100,
+  driversMax: 200,
+  attendanceNameMax: 100,
+  attendanceDateMax: 20,
+  attendanceDescriptionMax: 300,
   pageMin: 1,
   pageMax: 100
 } as const
@@ -219,4 +225,91 @@ export function validateRacingPage(limit: unknown, offset: unknown): { ok: true;
     result.offset = offset
   }
   return result
+}
+
+// ── Results archive ─────────────────────────────────────────────────────────
+
+export interface RacingResultDraft {
+  /** The team's name as the server spells it (picked from the team list). */
+  team: string
+  eventName: string
+  result: string
+  drivers: string
+  notes: string
+}
+export type RacingResultField = keyof RacingResultDraft
+
+/**
+ * Logging a result (/racing {game} results-log). The archive is append-only and the same result twice is two entries, so every
+ * limit is checked here before anything is sent: event name 1-100, result 1-100, drivers 1-200 (free text), notes up to 300.
+ */
+export function validateRacingResultDraft(draft: RacingResultDraft): FormResult<RacingResultInput, RacingResultField> {
+  const errors: Partial<Record<RacingResultField, string>> = {}
+  const team = draft.team.trim()
+  const eventName = draft.eventName.trim()
+  const result = draft.result.trim()
+  const drivers = draft.drivers.trim()
+  const notes = draft.notes.trim()
+
+  if (team === '') errors.team = 'Choose a team.'
+  else {
+    const problem = teamNameProblem(team)
+    if (problem) errors.team = problem
+  }
+  const eventProblem = singleLineProblem(eventName, 1, RACING_LIMITS.resultEventMax, 'an event name')
+  if (eventProblem) errors.eventName = eventProblem
+  const resultProblem = singleLineProblem(result, 1, RACING_LIMITS.resultMax, 'the result')
+  if (resultProblem) errors.result = resultProblem
+  const driversProblem = singleLineProblem(drivers, 1, RACING_LIMITS.driversMax, 'the drivers involved')
+  if (driversProblem) errors.drivers = driversProblem
+  if (notes !== '') {
+    const problem = paragraphProblem(notes, 1, RACING_LIMITS.notesMax, 'the notes')
+    if (problem) errors.notes = problem
+  }
+  if (Object.keys(errors).length > 0) return { ok: false, errors }
+  return { ok: true, value: { team, eventName, result, drivers, ...(notes !== '' ? { notes } : {}) } }
+}
+
+/** The query of the archive: an optional team, `limit` 1-100 and `offset` 0 or more. */
+export function validateRacingResultQuery(team: unknown, limit: unknown, offset: unknown): { ok: true; value: RacingResultQuery } | { ok: false; message: string } {
+  const page = validateRacingPage(limit, offset)
+  if (!page.ok) return page
+  const value: RacingResultQuery = { ...(page.limit !== undefined ? { limit: page.limit } : {}), ...(page.offset !== undefined ? { offset: page.offset } : {}) }
+  if (team !== undefined && team !== null && team !== '') {
+    if (typeof team !== 'string') return { ok: false, message: 'Enter a team name.' }
+    const problem = teamNameProblem(team)
+    if (problem) return { ok: false, message: problem }
+    value.team = team.trim()
+  }
+  return { ok: true, value }
+}
+
+// ── Attendance posts ────────────────────────────────────────────────────────
+
+export interface RacingAttendanceDraft {
+  channelId: string
+  name: string
+  date: string
+  description: string
+}
+export type RacingAttendanceField = keyof RacingAttendanceDraft
+
+/** Creating an attendance post: name 1-100, date 1-20 (free text, shown as typed), description up to 300, and a channel. */
+export function validateRacingAttendanceDraft(draft: RacingAttendanceDraft): FormResult<RacingAttendanceInput, RacingAttendanceField> {
+  const errors: Partial<Record<RacingAttendanceField, string>> = {}
+  const name = draft.name.trim()
+  const date = draft.date.trim()
+  const description = draft.description.trim()
+
+  if (!isValidSnowflake(draft.channelId)) errors.channelId = 'Choose a channel.'
+  const nameProblem = singleLineProblem(name, 1, RACING_LIMITS.attendanceNameMax, 'a name for the post')
+  if (nameProblem) errors.name = nameProblem
+  const dateProblem = singleLineProblem(date, 1, RACING_LIMITS.attendanceDateMax, 'a date')
+  if (dateProblem) errors.date = dateProblem
+  if (description !== '') {
+    const problem = paragraphProblem(description, 1, RACING_LIMITS.attendanceDescriptionMax, 'the description')
+    if (problem) errors.description = problem
+  }
+  if (Object.keys(errors).length > 0) return { ok: false, errors }
+  return { ok: true, value: { channelId: draft.channelId, name, date, ...(description !== '' ? { description } : {}) } }
 }

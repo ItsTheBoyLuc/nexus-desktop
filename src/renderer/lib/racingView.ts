@@ -1,5 +1,5 @@
 import { longDate, parseEventDate } from '../../shared/racingValidation'
-import type { RacingEvent, RacingTeam, RosterEntry } from '../../shared/types'
+import type { RacingAttendanceSummary, RacingEvent, RacingResult, RacingTeam, RosterEntry } from '../../shared/types'
 import { RACING_ROLES } from '../../shared/types'
 import { describeError, errorCode } from './errors'
 
@@ -180,4 +180,90 @@ export const EVENT_GETTERS: Record<EventColumn, (event: RacingEvent) => string |
   time: (event) => event.time,
   name: (event) => event.name,
   class: (event) => (event.class === '' ? null : event.class)
+}
+
+// ── Results archive ─────────────────────────────────────────────────────────
+
+export const RESULTS_APPEND_ONLY_TEXT =
+  'The archive is append-only: a logged result cannot be edited or deleted, because no command does it and so the API has no endpoint for it. Check every field before you log. To correct a mistake, log the corrected result and explain in the notes.'
+
+export const RESULT_TWICE_WARNING = 'Logging the same result twice creates two entries, and neither can be removed again.'
+
+export const RESULTS_NOT_A_STANDING = 'This is the archive of results people logged, oldest first. It is not a calculated standing: nothing is added up or ranked here.'
+
+/** What to tell the user when the answer to logging a result was lost: never "try again", only look first. */
+export const RESULT_LOST_TEXT = 'Nexus did not get a clear answer, so the result may already be logged. It is not sent again with the same data, because a second send would create a second entry that cannot be deleted. Refresh the results and look for it first.'
+
+export type ResultColumn = 'logged' | 'event' | 'team' | 'result'
+
+/** Sorting is optional: with no column chosen the entries stay in the order the API returns them (oldest first). */
+export const RESULT_GETTERS: Record<ResultColumn, (entry: RacingResult) => string | number | null> = {
+  logged: (entry) => {
+    const time = Date.parse(entry.loggedAt)
+    return Number.isNaN(time) ? null : time
+  },
+  event: (entry) => entry.eventName,
+  team: (entry) => entry.teamName,
+  result: (entry) => entry.result
+}
+
+export function resultSearchFields(entry: RacingResult): string[] {
+  return [entry.eventName, entry.teamName, entry.result, entry.drivers, entry.notes]
+}
+
+/** "Team stats" text for a filtered page: how many entries the server holds for the team. Counts only what the server says. */
+export function describeResultCount(total: number, team: string | null): string {
+  const noun = total === 1 ? 'result' : 'results'
+  return team === null ? `${total} ${noun} in the archive` : `${total} ${noun} logged for ${team}`
+}
+
+// ── Attendance posts ────────────────────────────────────────────────────────
+
+export const ATTENDANCE_DRIVERS_TOGGLE_TEXT =
+  "Drivers set their own status with the Available and Not Available buttons under the post in Discord. The app only reads it: it cannot set or remove anyone's status, edit or delete a post, or find a post's channel later."
+
+export const ATTENDANCE_POSTED_AS_TYPED = 'The name, date and description are posted to Discord exactly as you type them. Discord formatting characters (like ** for bold or _ for italics) will show up as formatting there.'
+
+export const ATTENDANCE_LOST_TEXT =
+  'Nexus did not get a clear answer, so the post may already be in Discord. It is not sent again with the same data, because that would post it twice. Refresh the posts and check the channel in Discord before you create anything.'
+
+export type AttendanceColumn = 'date' | 'name' | 'available' | 'unavailable'
+
+export const ATTENDANCE_GETTERS: Record<AttendanceColumn, (post: RacingAttendanceSummary) => string | number | null> = {
+  date: (post) => post.date,
+  name: (post) => post.name,
+  available: (post) => post.counts.available,
+  unavailable: (post) => post.counts.unavailable
+}
+
+export type AttendanceFilter = 'all' | 'answered' | 'nobody'
+
+export const ATTENDANCE_FILTER_OPTIONS: ReadonlyArray<{ value: AttendanceFilter; label: string }> = [
+  { value: 'all', label: 'All posts' },
+  { value: 'answered', label: 'With answers' },
+  { value: 'nobody', label: 'Nobody answered yet' }
+]
+
+export function matchesAttendanceFilter(post: RacingAttendanceSummary, filter: AttendanceFilter): boolean {
+  const answers = post.counts.available + post.counts.unavailable
+  if (filter === 'all') return true
+  return filter === 'answered' ? answers > 0 : answers === 0
+}
+
+/** The Discord link of a message, built ONLY from ids the API returned (and the server the user is working in). */
+export function discordMessageLink(guildId: string, channelId: string, messageId: string): string {
+  return `https://discord.com/channels/${guildId}/${channelId}/${messageId}`
+}
+
+// ── Announcements ───────────────────────────────────────────────────────────
+
+export const ANNOUNCEMENT_AS_TYPED_TEXT =
+  'The text is posted to Discord exactly as you type it: formatting characters (like ** for bold or _ for italics) render there. Server emoji written like :name: are converted. Only an https image link is accepted.'
+
+export const ANNOUNCEMENT_LOST_TEXT =
+  'Nexus did not get a clear answer, so the announcement may already be in the channel. It is not sent again with the same data, because that would post it twice. The app cannot read announcements back, so look at the channel in Discord before you post anything.'
+
+/** The footer the message gets: "Posted via Nexus App by <name>", followed by the footer text of the server. */
+export function announcementFooter(name: string): string {
+  return `Posted via Nexus App by ${name}`
 }

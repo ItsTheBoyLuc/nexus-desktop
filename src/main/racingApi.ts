@@ -5,6 +5,10 @@ import type {
   RacingEventInput,
   RacingEventPage,
   RacingGame,
+  RacingResult,
+  RacingResultInput,
+  RacingResultPage,
+  RacingResultQuery,
   RacingMembership,
   RacingTeam,
   RacingTeamDetail,
@@ -39,6 +43,10 @@ export interface RacingApi {
   racingDriver: (guildId: string, game: RacingGame, userId: string) => Promise<RacingDriverProfile>
   racingEvents: (guildId: string, game: RacingGame, page?: { limit?: number; offset?: number }) => Promise<RacingEventPage>
   addRacingEvent: (guildId: string, game: RacingGame, input: RacingEventInput) => Promise<RacingEvent>
+  /** The append-only results archive, oldest first, paged exactly as the server pages it. `team` narrows it to one team (the team stats). */
+  racingResults: (guildId: string, game: RacingGame, query?: RacingResultQuery) => Promise<RacingResultPage>
+  /** Appends one entry. Never replayed: logging the same result twice creates two entries. */
+  logRacingResult: (guildId: string, game: RacingGame, input: RacingResultInput) => Promise<RacingResult>
 }
 
 const str = (value: unknown, max: number): string => (typeof value === 'string' ? value.slice(0, max) : typeof value === 'number' && Number.isFinite(value) ? String(value).slice(0, max) : '')
@@ -96,6 +104,20 @@ function parseEvent(json: unknown): RacingEvent {
     dateIso: typeof iso === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso : null,
     createdBy: str(json['created_by'], 40),
     createdAt: str(json['created_at'], 40)
+  }
+}
+
+function parseResult(json: unknown): RacingResult {
+  if (!isRecord(json) || typeof json['id'] !== 'string' || json['id'] === '') throw invalid('result')
+  return {
+    id: json['id'].slice(0, 64),
+    eventName: str(json['event_name'], 200),
+    teamName: str(json['team_name'], 100),
+    result: str(json['result'], 200),
+    drivers: str(json['drivers'], 400),
+    notes: str(json['notes'], 1000),
+    loggedBy: str(json['logged_by'], 40),
+    loggedAt: str(json['logged_at'], 40)
   }
 }
 
@@ -191,6 +213,35 @@ export function createRacingApi(client: ApiClient): RacingApi {
       })
       if (!isRecord(json)) throw invalid('event')
       return parseEvent(json['event'])
+    },
+
+    async racingResults(guildId, game, queryParams = {}) {
+      const json = await client.request({ path: `${racingPath(guildId, game, 'results')}${query({ team: queryParams.team === undefined ? undefined : teamName(queryParams.team), limit: queryParams.limit, offset: queryParams.offset })}` })
+      if (!isRecord(json) || !isCount(json['total'])) throw invalid('results')
+      return {
+        team: optionalText(json['team'], 100),
+        total: json['total'],
+        limit: countOr(json['limit'], 25),
+        offset: countOr(json['offset'], 0),
+        results: list(json, 'results', 'results').map(parseResult)
+      }
+    },
+
+    async logRacingResult(guildId, game, input) {
+      // One attempt, never replayed: a lost answer may well have appended the entry, and the archive has no delete.
+      const json = await client.request({
+        method: 'POST',
+        path: racingPath(guildId, game, 'results'),
+        body: {
+          team: teamName(input.team),
+          event_name: input.eventName,
+          result: input.result,
+          drivers: input.drivers,
+          ...(input.notes !== undefined && input.notes !== '' ? { notes: input.notes } : {})
+        }
+      })
+      if (!isRecord(json)) throw invalid('result')
+      return parseResult(json['result'])
     }
   }
 }

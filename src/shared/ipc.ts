@@ -79,6 +79,8 @@ export const IPC = {
   apiRacingDriver: 'api:racing-driver',
   apiRacingEvents: 'api:racing-events',
   apiRacingEventAdd: 'api:racing-event-add',
+  apiRacingResults: 'api:racing-results',
+  apiRacingResultLog: 'api:racing-result-log',
   apiGetStatus: 'api:get-status',
   apiStatusChanged: 'api:status-changed',
 

@@ -8,6 +8,10 @@ import type {
   RacingEventInput,
   RacingEventPage,
   RacingGame,
+  RacingResult,
+  RacingResultInput,
+  RacingResultPage,
+  RacingResultQuery,
   RacingTeam,
   RacingTeamDetail,
   RacingTeamInput,
@@ -230,6 +234,10 @@ export interface NexusBridge {
     racingDriver: (guildId: string, game: RacingGame, userId: string) => Promise<IpcResult<RacingDriverProfile>>
     racingEvents: (guildId: string, game: RacingGame, page?: { limit?: number; offset?: number }) => Promise<IpcResult<RacingEventPage>>
     addRacingEvent: (guildId: string, game: RacingGame, input: RacingEventInput) => Promise<IpcResult<RacingEvent>>
+    /** The append-only results archive (oldest first); `team` gives the team stats. */
+    racingResults: (guildId: string, game: RacingGame, query?: RacingResultQuery) => Promise<IpcResult<RacingResultPage>>
+    /** Appends an entry. Written once, never replayed: the same result twice is two entries. */
+    logRacingResult: (guildId: string, game: RacingGame, input: RacingResultInput) => Promise<IpcResult<RacingResult>>
 
     /** Current connection status (components that mount late would otherwise miss earlier events). */
     getStatus: () => Promise<ApiStatus>

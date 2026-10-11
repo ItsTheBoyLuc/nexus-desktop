@@ -29,7 +29,7 @@ import {
   parseSignupStatus
 } from '../shared/attendanceInputs'
 import { IPC } from '../shared/ipc'
-import { parseRacingEventInput, parseRacingGame, parseRacingPage, parseRacingTeamInput, parseRacingTeamName, parseRacingUserId, parseRosterAddInput } from '../shared/racingInputs'
+import { parseRacingEventInput, parseRacingGame, parseRacingPage, parseRacingResultInput, parseRacingResultQuery, parseRacingTeamInput, parseRacingTeamName, parseRacingUserId, parseRosterAddInput } from '../shared/racingInputs'
 import {
   parseAdvanceInput,
   parseBanInput,
@@ -288,6 +288,8 @@ export function registerIpc(deps: IpcDeps): void {
   handle(IPC.apiRacingDriver, (guildId, game, userId) => racing(guildId, game, (id, g) => deps.api.racingDriver(id, g, valid(parseRacingUserId(userId)))))
   handle(IPC.apiRacingEvents, (guildId, game, page) => racing(guildId, game, (id, g) => deps.api.racingEvents(id, g, valid(parseRacingPage(page)))))
   handle(IPC.apiRacingEventAdd, (guildId, game, input) => racing(guildId, game, (id, g) => deps.api.addRacingEvent(id, g, valid(parseRacingEventInput(input)))))
+  handle(IPC.apiRacingResults, (guildId, game, query) => racing(guildId, game, (id, g) => deps.api.racingResults(id, g, valid(parseRacingResultQuery(query)))))
+  handle(IPC.apiRacingResultLog, (guildId, game, input) => racing(guildId, game, (id, g) => deps.api.logRacingResult(id, g, valid(parseRacingResultInput(input)))))
 
   handle(IPC.apiGetStatus, () => deps.getApiStatus())
 

@@ -1111,3 +1111,91 @@ export const DEFAULT_SETTINGS: Settings = { lastGuildId: null, lastGame: null, p
 
 /** What the renderer may change itself; panels are only ever written by the main process. */
 export type SettingsPatch = Partial<Pick<Settings, 'lastGuildId' | 'lastGame'>>
+
+// ── Esports teams, part 2 (milestone 5): results archive, attendance and announcements ──────────────────
+
+/** One entry of the append-only results archive. All text is typed by people: untrusted, shown as plain text only. */
+export interface RacingResult {
+  id: string
+  eventName: string
+  teamName: string
+  /** Free text as typed ("P3 in GT3"). */
+  result: string
+  /** Free text as typed in the command (up to 200 characters). */
+  drivers: string
+  notes: string
+  loggedBy: string
+  loggedAt: string
+}
+
+export interface RacingResultPage {
+  /** The team the page was filtered on (as the server spells it), or null for every team. */
+  team: string | null
+  total: number
+  limit: number
+  offset: number
+  /** Oldest first, exactly as the server returns them. */
+  results: RacingResult[]
+}
+
+export interface RacingResultQuery {
+  team?: string
+  limit?: number
+  offset?: number
+}
+
+export interface RacingResultInput {
+  team: string
+  eventName: string
+  result: string
+  drivers: string
+  notes?: string
+}
+
+export interface RacingAttendanceCounts {
+  available: number
+  unavailable: number
+}
+
+export interface RacingAttendanceSummary {
+  messageId: string
+  name: string
+  /** Free text (1-20 characters). */
+  date: string
+  description: string
+  createdBy: string
+  createdAt: string
+  counts: RacingAttendanceCounts
+}
+
+export interface RacingAttendancePage {
+  total: number
+  limit: number
+  offset: number
+  /** Newest first. */
+  posts: RacingAttendanceSummary[]
+}
+
+export interface RacingAttendeeRow {
+  userId: string
+  /** The member's current display name (the stored name when they left); null when the server sent none. */
+  name: string | null
+  inServer: boolean
+}
+
+export interface RacingAttendancePost extends RacingAttendanceSummary {
+  attendance: { available: RacingAttendeeRow[]; unavailable: RacingAttendeeRow[] }
+}
+
+export interface RacingAttendanceInput {
+  channelId: string
+  name: string
+  date: string
+  description?: string
+}
+
+/** What creating a post returns: the post and the channel it was posted in (the server does not store the channel). */
+export interface RacingAttendanceResult {
+  post: RacingAttendancePost
+  channelId: string
+}
