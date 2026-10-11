@@ -1,19 +1,21 @@
 import { LoaderCircle } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 import { Navigate, Outlet, useLocation } from 'react-router-dom'
-import { Logo } from '../components'
+import { Logo, WakingNote } from '../components'
 import { useApiStatus, useAuth } from '../hooks/auth'
 import { RefreshProvider } from '../hooks/data'
-import { routes } from '../lib/routes'
+import { parseLocation, routes } from '../lib/routes'
 import { Sidebar } from './Sidebar'
 import { TopBar } from './TopBar'
 
 /** Full-window splash while the saved session is being restored. */
 export function Splash() {
+  const status = useApiStatus()
   return (
     <div className="splash" role="status" aria-label="Starting Nexus">
       <Logo size={64} />
       <span className="spinner" aria-hidden="true" />
+      {status === 'waking' ? <WakingNote /> : null}
     </div>
   )
 }
@@ -35,6 +37,9 @@ function Shell() {
   const status = useApiStatus()
   const contentRef = useRef<HTMLElement>(null)
   const firstRender = useRef(true)
+  // Choosing another server or game rebuilds the whole content area (no state, no data of the old one survives) and it animates in again.
+  const { guildId, game } = parseLocation(pathname)
+  const scope = `${guildId ?? ''}:${game ?? ''}`
 
   // After navigation, move focus to the content so keyboard and screen-reader users start at the top of the new page.
   useEffect(() => {
@@ -60,7 +65,9 @@ function Shell() {
           </div>
         ) : null}
         <main id="content" ref={contentRef} className="shell__content" tabIndex={-1}>
-          <Outlet />
+          <div key={scope} className="route-scope">
+            <Outlet />
+          </div>
         </main>
       </div>
     </div>

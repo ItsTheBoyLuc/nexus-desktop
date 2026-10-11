@@ -1,7 +1,7 @@
 import { ClipboardPenLine, RotateCw, Trophy } from 'lucide-react'
 import { useState } from 'react'
 import type { Standings as StandingsData } from '../../shared/types'
-import { Badge, Button, EmptyState, ErrorState, LoadingRegion, Notice, PageHeader, Select, Skeleton, SortHeader, Tabs, tabPanelProps, TextField } from '../components'
+import { Badge, Button, EmptyState, ErrorState, LoadingRegion, Notice, PageHeader, Select, Skeleton, SortHeader, Stagger, tabPanelProps, Tabs, TextField } from '../components'
 import { useServerSettings, useStandings, useTeams } from '../hooks/data'
 import { useFiaDenied } from '../hooks/useFiaDenied'
 import { describeError } from '../lib/errors'
@@ -51,7 +51,7 @@ function DriverTable({ standings }: { standings: StandingsData }) {
               <SortHeader label="Gap" column="gap" sort={sort} onSort={onSort} numeric />
             </tr>
           </thead>
-          <tbody>
+          <Stagger as="tbody">
             {rows.length === 0 ? (
               <tr>
                 <td colSpan={7} className="table__empty">
@@ -72,7 +72,7 @@ function DriverTable({ standings }: { standings: StandingsData }) {
                 <td className="table__num">{row.gap === 0 ? <span className="muted">Leader</span> : `-${row.gap}`}</td>
               </tr>
             ))}
-          </tbody>
+          </Stagger>
         </table>
       </div>
       <p className="muted table-count" id="wdc-count" aria-live="polite">
@@ -107,7 +107,7 @@ function TeamTable({ standings }: { standings: StandingsData }) {
               <SortHeader label="Gap" column="gap" sort={sort} onSort={onSort} numeric />
             </tr>
           </thead>
-          <tbody>
+          <Stagger as="tbody">
             {rows.length === 0 ? (
               <tr>
                 <td colSpan={5} className="table__empty">
@@ -126,7 +126,7 @@ function TeamTable({ standings }: { standings: StandingsData }) {
                 <td className="table__num">{row.gap === 0 ? <span className="muted">Leader</span> : `-${row.gap}`}</td>
               </tr>
             ))}
-          </tbody>
+          </Stagger>
         </table>
       </div>
       <p className="muted table-count" id="wcc-count" aria-live="polite">

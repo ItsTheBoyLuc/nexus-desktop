@@ -96,10 +96,10 @@ export function DriverPenaltyHistory({ guildId, driver, season, currentSeason, f
               <Button icon={<Plus size={16} aria-hidden="true" />} onClick={onAddPoints}>
                 Add penalty points
               </Button>
-              <Button variant="secondary" icon={<Eraser size={16} aria-hidden="true" />} disabled={fiaDenied} title={fiaDenied ? fiaTitle : undefined} onClick={() => onClear(history.data.totalPoints)}>
+              <Button destructive variant="secondary" icon={<Eraser size={16} aria-hidden="true" />} disabled={fiaDenied} title={fiaDenied ? fiaTitle : undefined} onClick={() => onClear(history.data.totalPoints)}>
                 Clear points
               </Button>
-              <Button variant="secondary" icon={<Ban size={16} aria-hidden="true" />} disabled={fiaDenied} title={fiaDenied ? fiaTitle : undefined} onClick={onBan}>
+              <Button destructive variant="secondary" icon={<Ban size={16} aria-hidden="true" />} disabled={fiaDenied} title={fiaDenied ? fiaTitle : undefined} onClick={onBan}>
                 Give or remove a ban
               </Button>
             </div>

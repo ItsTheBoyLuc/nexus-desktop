@@ -1,7 +1,7 @@
 import { Plus, RotateCw, ServerOff } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { BOT_INVITE_URL } from '../../shared/constants'
-import { Avatar, Button, CardButton, EmptyState, ErrorState, LoadingRegion, PageHeader, Skeleton } from '../components'
+import { Avatar, Button, CardButton, EmptyState, ErrorState, LoadingRegion, PageHeader, Skeleton, Stagger } from '../components'
 import { useGuilds } from '../hooks/data'
 import { useSettings } from '../hooks/settings'
 import { describeError } from '../lib/errors'
@@ -48,7 +48,7 @@ export function Servers() {
       ) : null}
 
       {guilds.status === 'ready' && guilds.data.length > 0 ? (
-        <ul className="grid" aria-label="Servers">
+        <Stagger as="ul" className="grid" aria-label="Servers">
           {guilds.data.map((guild) => (
             <li key={guild.id}>
               <CardButton
@@ -63,7 +63,7 @@ export function Servers() {
               </CardButton>
             </li>
           ))}
-        </ul>
+        </Stagger>
       ) : null}
     </div>
   )

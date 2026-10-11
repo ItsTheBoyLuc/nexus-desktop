@@ -1,7 +1,7 @@
 import { ArrowLeft, Lock, Plus, RotateCw, ShieldAlert, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import type { DirtyReport } from '../../shared/types'
-import { Badge, Button, Card, EmptyState, ErrorState, EvidenceLink, LoadingRegion, Modal, Notice, PageHeader, Skeleton, SortHeader, TextField, useToast } from '../components'
+import { Badge, Button, Card, EmptyState, ErrorState, EvidenceLink, LoadingRegion, Modal, Notice, PageHeader, Skeleton, SortHeader, Stagger, TextField, useToast } from '../components'
 import { useDirtyDrivers, useDirtyHistory } from '../hooks/data'
 import { useWriteAction } from '../hooks/useWriteAction'
 import { DIRTY_GETTERS, describeRemoval, runRemoval } from '../lib/dirtyView'
@@ -110,13 +110,13 @@ function DriverHistory({ guildId, driver, onBack, onAdd }: { guildId: string; dr
               Add a report
             </Button>
           </Card>
-          <ul className="report-cards">
+          <Stagger as="ul" className="report-cards">
             {history.data.reports.map((report) => (
               <li key={report.index}>
                 <Card className="stack stack--tight">
                   <div className="section-head">
                     <h3>Report {report.index}</h3>
-                    <Button variant="secondary" size="sm" icon={<Trash2 size={14} aria-hidden="true" />} disabled={uncertain || history.refreshing === true} onClick={() => { setPending(report); setDialogProblem(null) }}>
+                    <Button destructive variant="secondary" size="sm" icon={<Trash2 size={14} aria-hidden="true" />} disabled={uncertain || history.refreshing === true} onClick={() => { setPending(report); setDialogProblem(null) }}>
                       Remove report {report.index}
                     </Button>
                   </div>
@@ -129,7 +129,7 @@ function DriverHistory({ guildId, driver, onBack, onAdd }: { guildId: string; dr
                 </Card>
               </li>
             ))}
-          </ul>
+          </Stagger>
         </>
       ) : null}
 
@@ -144,7 +144,7 @@ function DriverHistory({ guildId, driver, onBack, onAdd }: { guildId: string; dr
             <Button variant="secondary" data-autofocus disabled={write.busy} onClick={() => setPending(null)}>
               Cancel
             </Button>
-            <Button loading={write.busy} onClick={() => void remove()}>
+            <Button destructive loading={write.busy} onClick={() => void remove()}>
               Remove the report
             </Button>
           </>
@@ -245,7 +245,7 @@ function DirtyDriversScreen() {
                       <SortHeader label="Latest" column="when" sort={sort} onSort={onSort} />
                     </tr>
                   </thead>
-                  <tbody>
+                  <Stagger as="tbody">
                     {rows.length === 0 ? (
                       <tr>
                         <td colSpan={5} className="table__empty">
@@ -266,7 +266,7 @@ function DirtyDriversScreen() {
                         <td>{formatDay(driver.latest.timestamp)}</td>
                       </tr>
                     ))}
-                  </tbody>
+                  </Stagger>
                 </table>
               </div>
               <p className="muted table-count" id="dirty-count" aria-live="polite">

@@ -1,7 +1,7 @@
 import { CalendarDays, Circle, CircleCheck, Layers, Megaphone, RotateCw, Settings as SettingsIcon } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import type { Overview as OverviewData } from '../../shared/types'
-import { Avatar, Badge, Button, Card, ErrorState, LoadingRegion, Notice, PageHeader, Skeleton } from '../components'
+import { Avatar, Badge, Button, Card, ErrorState, LoadingRegion, Notice, PageHeader, Skeleton, Stagger } from '../components'
 import { useOverview } from '../hooks/data'
 import { describeError } from '../lib/errors'
 import { formatCountdown, plural } from '../lib/format'
@@ -32,7 +32,7 @@ function Loaded({ data, guildId }: { data: OverviewData; guildId: string }) {
         <h2 id="stats-heading" className="section-title">
           At a glance
         </h2>
-        <div className="grid grid--stats">
+        <Stagger className="grid grid--stats">
           <Stat value={counts.activeGames} label="Games enabled" note={counts.games > counts.activeGames ? `${counts.games} set up in total` : undefined} />
           <Stat value={counts.tiers} label="Tiers" note={`${counts.tiersWithPanel} with a sign-up panel`} />
           <Stat value={counts.tierDrivers} label="Drivers in tiers" note="Each member counted once" />
@@ -41,7 +41,7 @@ function Loaded({ data, guildId }: { data: OverviewData; guildId: string }) {
           <Stat value={counts.openSignups} label="Open sign-ups" />
           <Stat value={counts.reports} label="Reports" note={`${counts.pendingReports} pending`} />
           <Stat value={data.season} label="Season in effect" />
-        </div>
+        </Stagger>
       </section>
 
       <div className="columns">

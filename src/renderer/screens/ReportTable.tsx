@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { ReactNode } from 'react'
 import type { Report } from '../../shared/types'
-import { SortHeader, TextField } from '../components'
+import { SortHeader, Stagger, TextField } from '../components'
 import { plural } from '../lib/format'
 import { formatDay } from '../lib/format'
 import { REPORT_GETTERS, reportSearchFields } from '../lib/reportView'
@@ -52,7 +52,7 @@ export function ReportTable({ reports, onOpen, idPrefix, caption, note }: Report
               <SortHeader label="Filed" column="filed" sort={sort} onSort={onSort} />
             </tr>
           </thead>
-          <tbody>
+          <Stagger as="tbody">
             {rows.length === 0 ? (
               <tr>
                 <td colSpan={6} className="table__empty">
@@ -78,7 +78,7 @@ export function ReportTable({ reports, onOpen, idPrefix, caption, note }: Report
                 <td>{formatDay(report.timestamp)}</td>
               </tr>
             ))}
-          </tbody>
+          </Stagger>
         </table>
       </div>
       <p className="muted table-count" id={`${idPrefix}-count`} aria-live="polite">

@@ -3,7 +3,7 @@ import { useCallback, useMemo, useState } from 'react'
 import { ATTENDANCE_POST_LIMITS, validatePostDraft, validatePostFilters } from '../../shared/attendanceValidation'
 import type { PostField, PostFilterDraft } from '../../shared/attendanceValidation'
 import type { AttendanceDivision, AttendanceDriver, AttendancePostResult, AttendancePostSummary } from '../../shared/types'
-import { Badge, Button, Card, CopyButton, EmptyState, ErrorState, LoadingRegion, Modal, Notice, SearchSelect, Select, Skeleton, SortHeader, TextField, useToast } from '../components'
+import { Badge, Button, Card, CopyButton, EmptyState, ErrorState, LoadingRegion, Modal, Notice, SearchSelect, Select, Skeleton, SortHeader, Stagger, TextField, useToast } from '../components'
 import { useAttendancePost, useGuildChannels } from '../hooks/data'
 import { usePagedList } from '../hooks/paged'
 import { useDebounced } from '../hooks/useDebounced'
@@ -118,7 +118,7 @@ export function PostsList({ guildId, divisions, onOpen, onCreate }: { guildId: s
                   <SortHeader label="Reserve" column="reserve" sort={sort} onSort={onSort} numeric />
                 </tr>
               </thead>
-              <tbody>
+              <Stagger as="tbody">
                 {rows.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="table__empty">
@@ -145,7 +145,7 @@ export function PostsList({ guildId, divisions, onOpen, onCreate }: { guildId: s
                     <td className="table__num">{post.counts.reserve}</td>
                   </tr>
                 ))}
-              </tbody>
+              </Stagger>
             </table>
           </div>
           <p className="muted table-count" id="posts-count" aria-live="polite">

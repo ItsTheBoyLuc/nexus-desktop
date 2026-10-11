@@ -38,12 +38,17 @@ export const motion = {
   standard: '220ms',
   page: '320ms',
   stagger: '40ms',
+  /** One cycle of a loading indicator (skeleton shimmer, waking dots) and of the slow glow of the login logo. */
+  loop: '1400ms',
+  loopGlow: '3600ms',
+  /** How long a toast stays before it dismisses itself; its progress bar runs for exactly this long. */
+  toast: '6000ms',
   staggerCap: 8,
   easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)'
 } as const
 
 export const shadows = {
-  glow: '0 0 0 1px rgba(255, 51, 51, 0.55), 0 0 24px rgba(255, 51, 51, 0.35)',
+  glow: '0 6px 20px rgba(255, 51, 51, 0.32)',
   card: '0 8px 24px rgba(0, 0, 0, 0.45)'
 } as const
 
@@ -70,6 +75,9 @@ export function applyTheme(root: HTMLElement = document.documentElement): void {
   set('--motion-standard', motion.standard)
   set('--motion-page', motion.page)
   set('--motion-stagger', motion.stagger)
+  set('--motion-loop', motion.loop)
+  set('--motion-loop-glow', motion.loopGlow)
+  set('--motion-toast', motion.toast)
   set('--motion-fast', motion.micro)
   set('--motion-slow', motion.standard)
   set('--ease', motion.easing)

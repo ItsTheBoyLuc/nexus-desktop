@@ -2,7 +2,7 @@ import { CalendarDays, Pencil, Plus, RotateCw, Send, Trash2 } from 'lucide-react
 import { useState } from 'react'
 import { EVENT_TYPES } from '../../shared/types'
 import type { Calendar as CalendarData, CalendarRound, NextRace } from '../../shared/types'
-import { Badge, Button, Card, ConfirmDialog, EmptyState, ErrorState, LoadingRegion, Notice, PageHeader, Select, Skeleton, SortHeader, TextField, useToast, WriteProblemNotice } from '../components'
+import { Badge, Button, Card, ConfirmDialog, EmptyState, ErrorState, LoadingRegion, Notice, PageHeader, Select, Skeleton, SortHeader, Stagger, TextField, useToast, WriteProblemNotice } from '../components'
 import { useCalendar, useGuildChannels, useNextRace } from '../hooks/data'
 import { useSettings } from '../hooks/settings'
 import { useWriteAction } from '../hooks/useWriteAction'
@@ -137,7 +137,7 @@ function RoundTable({ calendar, busy, onEdit, onDelete }: { calendar: CalendarDa
               </th>
             </tr>
           </thead>
-          <tbody>
+          <Stagger as="tbody">
             {rows.length === 0 ? (
               <tr>
                 <td colSpan={6} className="table__empty">
@@ -171,7 +171,7 @@ function RoundTable({ calendar, busy, onEdit, onDelete }: { calendar: CalendarDa
                 </td>
               </tr>
             ))}
-          </tbody>
+          </Stagger>
         </table>
       </div>
       <p className="muted table-count" id="rounds-count" aria-live="polite">

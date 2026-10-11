@@ -79,6 +79,170 @@
 .switch__label { font-weight: 600; }
 .switch__hint { margin-left: 48px; color: var(--color-muted); font-size: 12px; }
 
+/* ── Route transitions ────────────────────────────────────────────────────── */
+/* The content area (never the sidebar) fades in and rises 8px whenever a screen appears. .route-scope is rebuilt when the server
+   or the game changes, so that switch animates in again from a clean state. Skeleton pages (aria-busy) stay still: the real
+   screen that replaces them is the one that animates. */
+.route-scope { display: contents; }
+.route-scope > :not([aria-busy='true']) { animation: rise-in var(--motion-page) var(--ease) backwards; }
+
+/* ── Staggered entrance of lists, card grids and the first table rows ─────── */
+/* The Stagger component puts .stagger on a container only while it appears, so later rows (Load more, filters) never animate.
+   Items 1 to 8 start 40ms apart; every item after the eighth is not animated at all. */
+@keyframes item-in {
+  from { opacity: 0; transform: translateY(8px); }
+}
+.stagger > :nth-child(-n + 8) { animation: item-in var(--motion-standard) var(--ease) backwards; }
+.stagger > :nth-child(2) { animation-delay: calc(var(--motion-stagger) * 1); }
+.stagger > :nth-child(3) { animation-delay: calc(var(--motion-stagger) * 2); }
+.stagger > :nth-child(4) { animation-delay: calc(var(--motion-stagger) * 3); }
+.stagger > :nth-child(5) { animation-delay: calc(var(--motion-stagger) * 4); }
+.stagger > :nth-child(6) { animation-delay: calc(var(--motion-stagger) * 5); }
+.stagger > :nth-child(7) { animation-delay: calc(var(--motion-stagger) * 6); }
+.stagger > :nth-child(8) { animation-delay: calc(var(--motion-stagger) * 7); }
+
+/* ── Sidebar: the sliding indicator and the smooth groups ─────────────────── */
+/* One bar, moved only with a transform by useNavIndicator. The first placement is instant; later moves slide. */
+.nav-indicator {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 3px;
+  height: 20px;
+  border-radius: 2px;
+  background: var(--color-primary);
+  opacity: 0;
+  pointer-events: none;
+}
+.nav-indicator[data-visible='true'] { opacity: 1; }
+.nav-indicator[data-ready='true'] { transition: transform var(--motion-standard) var(--ease), opacity var(--motion-micro) var(--ease); }
+
+/* A group opens and closes by growing its row from 0fr to 1fr (the one place where size, not only transform, animates: the group
+   has to take the room it needs). Closed, it is invisible and inert, so it is out of the tab order and the reading order. */
+.nav-collapse {
+  display: grid;
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transition: grid-template-rows var(--motion-standard) var(--ease), opacity var(--motion-standard) var(--ease), visibility 0s;
+}
+.nav-collapse[data-collapsed='true'] {
+  grid-template-rows: 0fr;
+  opacity: 0;
+  visibility: hidden;
+  transition: grid-template-rows var(--motion-standard) var(--ease), opacity var(--motion-standard) var(--ease), visibility 0s linear var(--motion-standard);
+}
+.nav-collapse__clip { min-height: 0; overflow: clip; overflow-clip-margin: 4px; } /* the margin keeps focus rings from being cut off */
+
+/* ── Dialogs ──────────────────────────────────────────────────────────────── */
+/* The backdrop fades; the panel scales from 0.96 to 1 while it fades in. Focus handling is untouched (Modal.tsx). */
+@keyframes modal-in {
+  from { opacity: 0; transform: scale(0.96); }
+}
+.modal-overlay { animation: fade-in var(--motion-micro) var(--ease) backwards; }
+.modal { animation: modal-in var(--motion-standard) var(--ease) backwards; }
+
+/* ── Toasts ───────────────────────────────────────────────────────────────── */
+/* Slide in from the right; a thin bar runs down over the same time the toast stays (token --motion-toast, also used by Toast.tsx). */
+@keyframes toast-in {
+  from { opacity: 0; transform: translateX(24px); }
+}
+@keyframes toast-progress {
+  to { transform: scaleX(0); }
+}
+.toast { position: relative; overflow: hidden; animation: toast-in var(--motion-standard) var(--ease) backwards; }
+.toast__progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: var(--color-muted);
+  opacity: 0.7;
+  transform-origin: left center;
+  animation: toast-progress var(--motion-toast) linear forwards;
+}
+.toast--success .toast__progress { background: var(--color-success); }
+.toast--danger .toast__progress { background: var(--color-danger); }
+
+/* ── Skeleton loaders: a shimmer that sweeps across with a transform ──────── */
+@keyframes shimmer {
+  to { transform: translateX(100%); }
+}
+.skeleton {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  background: #151515;
+  border-radius: var(--radius-control);
+}
+.skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.055), transparent);
+  transform: translateX(-100%);
+  animation: shimmer var(--motion-loop) var(--ease) infinite;
+}
+
+/* ── Empty and error states ───────────────────────────────────────────────── */
+/* The icon fades in gently. The retry button of an error shakes once, sideways, after the icon has started to appear. */
+@keyframes shake {
+  20% { transform: translateX(-6px); }
+  45% { transform: translateX(5px); }
+  70% { transform: translateX(-3px); }
+  90% { transform: translateX(1px); }
+}
+.state__icon { animation: fade-in var(--motion-page) var(--ease) backwards; }
+.state--error .state__actions .btn { animation: shake var(--motion-page) var(--ease) var(--motion-standard) 1 backwards; }
+
+/* ── Success check mark: the ring and then the tick draw themselves once ──── */
+@keyframes draw {
+  from { stroke-dashoffset: 1; }
+}
+.success-mark { flex: none; overflow: visible; }
+.success-mark circle,
+.success-mark path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 0;
+}
+.success-mark__ring { animation: draw var(--motion-page) var(--ease) backwards; }
+.success-mark__tick { animation: draw var(--motion-standard) var(--ease) var(--motion-micro) backwards; }
+.toast--success .success-mark,
+.notice--success .success-mark,
+.success-panel .success-mark,
+.success-heading .success-mark { color: var(--color-success); }
+
+/* ── Login: the logo draws itself once, then the glow breathes slowly ─────── */
+@keyframes logo-draw {
+  from { stroke-dashoffset: 1; }
+}
+@keyframes logo-glow {
+  0%, 100% { opacity: 0.12; }
+  50% { opacity: 0.4; }
+}
+.logo--animated { overflow: visible; }
+.logo__outline { stroke-dasharray: 1; stroke-dashoffset: 0; animation: logo-draw calc(var(--motion-page) * 3) var(--ease) backwards; }
+.logo__fill { animation: fade-in calc(var(--motion-page) * 2) var(--ease) calc(var(--motion-page) * 2) backwards; }
+.logo__bolt { animation: fade-in calc(var(--motion-page) * 2) var(--ease) calc(var(--motion-page) * 3) backwards; }
+.logo__halo { animation: fade-in var(--motion-page) var(--ease) calc(var(--motion-page) * 5) backwards; }
+.logo__glow { filter: blur(14px); opacity: 0.25; animation: logo-glow var(--motion-loop-glow) ease-in-out calc(var(--motion-page) * 5) infinite; }
+
+/* ── "Waking up the server": three softly pulsing dots ────────────────────── */
+@keyframes dot-pulse {
+  0%, 100% { opacity: 0.25; }
+  50% { opacity: 1; }
+}
+.waking { display: inline-flex; align-items: center; gap: 8px; color: var(--color-muted); font-size: 13px; }
+.waking__dots { display: inline-flex; gap: 4px; }
+.waking__dots i { width: 5px; height: 5px; border-radius: 50%; background: currentColor; opacity: 0.6; animation: dot-pulse var(--motion-loop) ease-in-out infinite; }
+.waking__dots i:nth-child(2) { animation-delay: calc(var(--motion-stagger) * 4); }
+.waking__dots i:nth-child(3) { animation-delay: calc(var(--motion-stagger) * 8); }
+
 /* ── Reduced motion ───────────────────────────────────────────────────────── */
 /* Either the operating system asks for it or the Reduce animations switch is on: nothing moves, every change of state is instant. */
 @media (prefers-reduced-motion: reduce) {
@@ -97,3 +261,8 @@
   transition: none !important;
   scroll-behavior: auto !important;
 }
+/* The toast still dismisses itself; with no movement there is no bar running down. */
+@media (prefers-reduced-motion: reduce) {
+  .toast__progress { display: none; }
+}
+:root[data-motion='reduced'] .toast__progress { display: none; }

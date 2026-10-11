@@ -50,7 +50,10 @@ export function PreferencesMenu() {
       ref={rootRef}
       className="prefs"
       onBlur={(event) => {
-        if (open && !rootRef.current?.contains(event.relatedTarget as Node | null)) setOpen(false)
+        // Closes when focus moves to something outside (Tab). A click on the label text or the track moves focus to nothing for a
+        // moment (relatedTarget null) before the click reaches the switch, so that case must not close it; clicks outside are handled below.
+        const next = event.relatedTarget as Node | null
+        if (open && next && !rootRef.current?.contains(next)) setOpen(false)
       }}
     >
       <button ref={triggerRef} type="button" className="btn btn--ghost btn--sm prefs__trigger" aria-haspopup="dialog" aria-expanded={open} aria-controls={open ? panelId : undefined} onClick={() => setOpen((value) => !value)}>

@@ -3,7 +3,7 @@ import { useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { SEASON_LIMITS, wholeNumber } from '../../shared/penaltyValidation'
 import type { AdvanceRaceResult, PenaltyOverview, PenaltyRow } from '../../shared/types'
-import { Badge, Button, Card, EmptyState, ErrorState, LoadingRegion, Notice, PageHeader, Select, Skeleton, SortHeader, Tabs, tabPanelProps, TextField, useToast } from '../components'
+import { Badge, Button, Card, EmptyState, ErrorState, LoadingRegion, Notice, PageHeader, Select, Skeleton, SortHeader, Stagger, tabPanelProps, Tabs, TextField, useToast } from '../components'
 import { usePenaltyOverview } from '../hooks/data'
 import { useDebounced } from '../hooks/useDebounced'
 import { useFiaDenied } from '../hooks/useFiaDenied'
@@ -68,7 +68,7 @@ function OverviewTable({ overview, onOpen }: { overview: PenaltyOverview; onOpen
               <SortHeader label="Reported" column="reported" sort={sort} onSort={onSort} numeric />
             </tr>
           </thead>
-          <tbody>
+          <Stagger as="tbody">
             {rows.length === 0 ? (
               <tr>
                 <td colSpan={6} className="table__empty">
@@ -92,7 +92,7 @@ function OverviewTable({ overview, onOpen }: { overview: PenaltyOverview; onOpen
                 <td className="table__num">{row.reportedCount > 0 ? <Badge tone="danger">Reported ({row.reportedCount})</Badge> : <span className="muted">-</span>}</td>
               </tr>
             ))}
-          </tbody>
+          </Stagger>
         </table>
       </div>
       <p className="muted table-count" id="penalties-count" aria-live="polite">
@@ -185,7 +185,7 @@ function PenaltiesScreen() {
                     <Button icon={<Plus size={16} aria-hidden="true" />} disabled={!canAct} onClick={() => setDialog({ kind: 'points' })}>
                       Add penalty points
                     </Button>
-                    <Button variant="secondary" icon={<Ban size={16} aria-hidden="true" />} disabled={!canAct || fia.denied} title={fia.denied ? 'Needs the FIA role or the Administrator permission' : undefined} onClick={() => setDialog({ kind: 'ban', driver: null })}>
+                    <Button destructive variant="secondary" icon={<Ban size={16} aria-hidden="true" />} disabled={!canAct || fia.denied} title={fia.denied ? 'Needs the FIA role or the Administrator permission' : undefined} onClick={() => setDialog({ kind: 'ban', driver: null })}>
                       Give or remove a ban
                     </Button>
                     <Button variant="secondary" icon={<FastForward size={16} aria-hidden="true" />} disabled={!canAct || fia.denied} title={fia.denied ? 'Needs the FIA role or the Administrator permission' : undefined} onClick={() => setDialog({ kind: 'advance' })}>

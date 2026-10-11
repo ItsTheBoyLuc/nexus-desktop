@@ -1,7 +1,7 @@
 import { RotateCw, Trash2, UserX } from 'lucide-react'
 import { useCallback, useState } from 'react'
 import type { Signup, SignupParticipant } from '../../shared/types'
-import { Badge, Button, EmptyState, ErrorState, LoadingRegion, Modal, Notice, Skeleton, SortHeader, TextField, useToast } from '../components'
+import { Badge, Button, EmptyState, ErrorState, LoadingRegion, Modal, Notice, Skeleton, SortHeader, Stagger, TextField, useToast } from '../components'
 import { usePagedList } from '../hooks/paged'
 import { useWriteAction } from '../hooks/useWriteAction'
 import { errorCode, describeError, outcomeUnknown, unwrap } from '../lib/errors'
@@ -128,7 +128,7 @@ export function SignupParticipants({ guildId, signup }: Props) {
                   </th>
                 </tr>
               </thead>
-              <tbody>
+              <Stagger as="tbody">
                 {rows.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="table__empty">
@@ -151,12 +151,12 @@ export function SignupParticipants({ guildId, signup }: Props) {
                     <td>{formatWhen(participant.timestamp)}</td>
                     <td>
                       <div className="row-actions">
-                        <Button variant="ghost" size="sm" iconOnly icon={<Trash2 size={16} aria-hidden="true" />} aria-label={`Remove ${participantName(participant)} from this sign-up`} title="Remove from this sign-up" disabled={write.busy} onClick={() => setPending(participant)} />
+                        <Button destructive variant="ghost" size="sm" iconOnly icon={<Trash2 size={16} aria-hidden="true" />} aria-label={`Remove ${participantName(participant)} from this sign-up`} title="Remove from this sign-up" disabled={write.busy} onClick={() => setPending(participant)} />
                       </div>
                     </td>
                   </tr>
                 ))}
-              </tbody>
+              </Stagger>
             </table>
           </div>
           <p className="muted table-count" id="participants-count" aria-live="polite">
@@ -185,7 +185,7 @@ export function SignupParticipants({ guildId, signup }: Props) {
             <Button variant="secondary" data-autofocus disabled={write.busy} onClick={() => setPending(null)}>
               Cancel
             </Button>
-            <Button loading={write.busy} onClick={() => void remove()}>
+            <Button destructive loading={write.busy} onClick={() => void remove()}>
               Remove the participant
             </Button>
           </>

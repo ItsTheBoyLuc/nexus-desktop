@@ -2,7 +2,7 @@ import { CalendarDays, Plus, RotateCw } from 'lucide-react'
 import { useCallback, useState } from 'react'
 import { previewEventDate, RACING_LIMITS, isPastDate, validateRacingEventDraft } from '../../shared/racingValidation'
 import type { RacingEventField } from '../../shared/racingValidation'
-import { Badge, Button, EmptyState, ErrorState, LoadingRegion, Modal, Notice, PageHeader, Skeleton, SortHeader, TextField, useToast } from '../components'
+import { Badge, Button, EmptyState, ErrorState, LoadingRegion, Modal, Notice, PageHeader, Skeleton, SortHeader, Stagger, TextField, useToast } from '../components'
 import { usePagedList } from '../hooks/paged'
 import { useManageDenied } from '../hooks/useFiaDenied'
 import { useWriteAction } from '../hooks/useWriteAction'
@@ -212,7 +212,7 @@ function EventsScreen({ ctx }: { ctx: EsportsContext }) {
                   <SortHeader label="Class" column="class" sort={sort} onSort={onSort} />
                 </tr>
               </thead>
-              <tbody>
+              <Stagger as="tbody">
                 {rows.length === 0 ? (
                   <tr>
                     <td colSpan={4} className="table__empty">
@@ -239,7 +239,7 @@ function EventsScreen({ ctx }: { ctx: EsportsContext }) {
                     </tr>
                   )
                 })}
-              </tbody>
+              </Stagger>
             </table>
           </div>
           <p className="muted table-count" id="racing-events-count" aria-live="polite">

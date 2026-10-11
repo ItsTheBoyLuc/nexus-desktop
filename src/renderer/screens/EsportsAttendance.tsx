@@ -3,7 +3,7 @@ import { useCallback, useState } from 'react'
 import { RACING_LIMITS, validateRacingAttendanceDraft } from '../../shared/racingValidation'
 import type { RacingAttendanceField } from '../../shared/racingValidation'
 import type { RacingAttendanceResult, RacingAttendeeRow } from '../../shared/types'
-import { Badge, Button, Card, CopyButton, EmptyState, ErrorState, LoadingRegion, Modal, Notice, PageHeader, SearchSelect, Select, Skeleton, SortHeader, TextField, useToast } from '../components'
+import { Badge, Button, Card, CopyButton, EmptyState, ErrorState, LoadingRegion, Modal, Notice, PageHeader, SearchSelect, Select, Skeleton, SortHeader, Stagger, TextField, useToast } from '../components'
 import { useGuildChannels, useRacingAttendancePost } from '../hooks/data'
 import { usePagedList } from '../hooks/paged'
 import { useManagerDenied } from '../hooks/useFiaDenied'
@@ -101,7 +101,7 @@ function PostsList({ ctx, onOpen, onCreate, managerDenied }: { ctx: EsportsConte
                   <SortHeader label="Not available" column="unavailable" sort={sort} onSort={onSort} numeric />
                 </tr>
               </thead>
-              <tbody>
+              <Stagger as="tbody">
                 {rows.length === 0 ? (
                   <tr>
                     <td colSpan={4} className="table__empty">
@@ -122,7 +122,7 @@ function PostsList({ ctx, onOpen, onCreate, managerDenied }: { ctx: EsportsConte
                     <td className="table__num">{post.counts.unavailable}</td>
                   </tr>
                 ))}
-              </tbody>
+              </Stagger>
             </table>
           </div>
           <p className="muted table-count" id="racing-attendance-count" aria-live="polite">

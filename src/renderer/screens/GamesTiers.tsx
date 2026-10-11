@@ -5,7 +5,7 @@ import { isCatalogGameEnabled, leagueGamesFor } from '../../shared/leagueGames'
 import { findPanel } from '../../shared/panels'
 import { GAME_KEYS, GAME_LABELS } from '../../shared/types'
 import type { LeagueGame, Tier } from '../../shared/types'
-import { Badge, Button, Card, ConfirmDialog, EmptyState, ErrorState, LoadingRegion, Notice, PageHeader, Select, Skeleton, TextField, useToast } from '../components'
+import { Badge, Button, Card, ConfirmDialog, EmptyState, ErrorState, LoadingRegion, Notice, PageHeader, Select, Skeleton, Stagger, TextField, useToast } from '../components'
 import { useGuildChannels, useLeagueGames } from '../hooks/data'
 import { useSettings } from '../hooks/settings'
 import { useWriteAction } from '../hooks/useWriteAction'
@@ -122,7 +122,7 @@ function TierTable({ guildId, game, actions, busy }: { guildId: string; game: Le
               </th>
             </tr>
           </thead>
-          <tbody>
+          <Stagger as="tbody">
             {rows.length === 0 ? (
               <tr>
                 <td colSpan={6} className="table__empty">
@@ -166,7 +166,7 @@ function TierTable({ guildId, game, actions, busy }: { guildId: string; game: Le
                 </tr>
               )
             })}
-          </tbody>
+          </Stagger>
         </table>
       </div>
       <p className="muted table-count" id={`${idPrefix}-count`} aria-live="polite">
@@ -209,7 +209,7 @@ function LeagueGameBlock({ guildId, game, actions, busy, workingKey }: { guildId
           >
             {game.active ? 'Disable game' : 'Enable game'}
           </Button>
-          <Button variant="ghost" size="sm" disabled={busy} icon={<Trash2 size={14} aria-hidden="true" />} onClick={() => actions.removeGame(game)}>
+          <Button destructive variant="ghost" size="sm" disabled={busy} icon={<Trash2 size={14} aria-hidden="true" />} onClick={() => actions.removeGame(game)}>
             Delete game
           </Button>
         </div>

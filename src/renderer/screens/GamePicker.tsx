@@ -4,7 +4,7 @@ import type { ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { GAME_KEYS, isGameKey } from '../../shared/types'
 import type { Game } from '../../shared/types'
-import { Avatar, Badge, Button, Card, EmptyState, ErrorState, LoadingRegion, PageHeader, Skeleton } from '../components'
+import { Avatar, Badge, Button, Card, EmptyState, ErrorState, LoadingRegion, PageHeader, Skeleton, Stagger } from '../components'
 import { useGuildGames, useGuilds } from '../hooks/data'
 import { useSettings } from '../hooks/settings'
 import { mergeGames } from '../lib/catalog'
@@ -89,7 +89,7 @@ export function GamePicker() {
       ) : null}
 
       {games.status === 'ready' ? (
-        <ul className="grid" aria-label="Games">
+        <Stagger as="ul" className="grid" aria-label="Games">
           {gameList.map((game) => {
             const descriptionId = `game-${game.key}-description`
             return (
@@ -134,7 +134,7 @@ export function GamePicker() {
               </li>
             )
           })}
-        </ul>
+        </Stagger>
       ) : null}
 
       {enabling && guildId ? <EnableGameDialog guildId={guildId} slug={enabling.key} label={enabling.label} onClose={() => setEnabling(null)} /> : null}

@@ -19,7 +19,7 @@ import {
   UserPlus,
   Users
 } from 'lucide-react'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { Avatar, Logo, Select } from '../components'
@@ -34,6 +34,7 @@ import type { ModuleState } from '../lib/modules'
 import { ESPORTS_PAGE_LABELS, ESPORTS_PAGES, gameHomePage, isLeaguePage, LEAGUE_PAGES, PAGE_LABELS, parseLocation, parseServerPage, routes, SERVER_PAGE_LABELS, SERVER_PAGES } from '../lib/routes'
 import type { EsportsPageKey, LeaguePageKey, ServerPageKey } from '../lib/routes'
 import { PreferencesMenu } from './PreferencesMenu'
+import { useNavIndicator } from './useNavIndicator'
 
 const SERVER_ICONS: Record<ServerPageKey, ReactNode> = {
   overview: <LayoutDashboard size={18} aria-hidden="true" />,
@@ -59,6 +60,19 @@ const ESPORTS_ICONS: Record<EsportsPageKey, ReactNode> = {
   results: <Trophy size={16} aria-hidden="true" />,
   attendance: <CalendarCheck size={16} aria-hidden="true" />,
   announcement: <Megaphone size={16} aria-hidden="true" />
+}
+
+/** The sub-list of a group. It stays in the page while closed so that it can open and close smoothly; `inert` and `visibility` keep it out of reach then. */
+function NavCollapse({ id, expanded, children }: { id: string; expanded: boolean; children: ReactNode }) {
+  return (
+    <div className="nav-collapse" data-collapsed={!expanded} inert={!expanded}>
+      <div className="nav-collapse__clip">
+        <ul id={id} className="nav-sublist">
+          {children}
+        </ul>
+      </div>
+    </div>
+  )
 }
 
 const navClass = ({ isActive }: { isActive: boolean }): string => `nav-item${isActive ? ' nav-item--active' : ''}`
@@ -90,18 +104,16 @@ function LeagueGroup({ state, guildId, game, expandedByRoute }: { state: ModuleS
         <span className="nav-item__label">League</span>
         {expanded ? <ChevronDown size={16} aria-hidden="true" /> : <ChevronRight size={16} aria-hidden="true" />}
       </button>
-      {expanded ? (
-        <ul id={listId} className="nav-sublist">
-          {LEAGUE_PAGES.map((key) => (
-            <li key={key}>
-              <NavLink to={routes.game(guildId, game, key)} className={({ isActive }) => `${navClass({ isActive })} nav-item--sub`}>
-                {LEAGUE_ICONS[key]}
-                {PAGE_LABELS[key]}
-              </NavLink>
-            </li>
-          ))}
-        </ul>
-      ) : null}
+      <NavCollapse id={listId} expanded={expanded}>
+        {LEAGUE_PAGES.map((key) => (
+          <li key={key}>
+            <NavLink to={routes.game(guildId, game, key)} className={({ isActive }) => `${navClass({ isActive })} nav-item--sub`}>
+              {LEAGUE_ICONS[key]}
+              {PAGE_LABELS[key]}
+            </NavLink>
+          </li>
+        ))}
+      </NavCollapse>
     </div>
   )
 }
@@ -121,18 +133,16 @@ function EsportsGroup({ guildId, game, expandedByRoute }: { guildId: string; gam
         <span className="nav-item__label">Esports team</span>
         {expanded ? <ChevronDown size={16} aria-hidden="true" /> : <ChevronRight size={16} aria-hidden="true" />}
       </button>
-      {expanded ? (
-        <ul id={listId} className="nav-sublist">
-          {ESPORTS_PAGES.map((key) => (
-            <li key={key}>
-              <NavLink to={routes.esports(guildId, game, key)} className={({ isActive }) => `${navClass({ isActive })} nav-item--sub`}>
-                {ESPORTS_ICONS[key]}
-                {ESPORTS_PAGE_LABELS[key]}
-              </NavLink>
-            </li>
-          ))}
-        </ul>
-      ) : null}
+      <NavCollapse id={listId} expanded={expanded}>
+        {ESPORTS_PAGES.map((key) => (
+          <li key={key}>
+            <NavLink to={routes.esports(guildId, game, key)} className={({ isActive }) => `${navClass({ isActive })} nav-item--sub`}>
+              {ESPORTS_ICONS[key]}
+              {ESPORTS_PAGE_LABELS[key]}
+            </NavLink>
+          </li>
+        ))}
+      </NavCollapse>
     </div>
   )
 }
@@ -140,6 +150,9 @@ function EsportsGroup({ guildId, game, expandedByRoute }: { guildId: string; gam
 export function Sidebar() {
   const { pathname } = useLocation()
   const navigate = useNavigate()
+  const asideRef = useRef<HTMLElement>(null)
+  const indicatorRef = useRef<HTMLSpanElement>(null)
+  useNavIndicator(asideRef, indicatorRef, pathname)
   const { state, logout } = useAuth()
   const { guildId, game, page, esportsPage } = parseLocation(pathname)
   const serverPage = parseServerPage(pathname)
@@ -191,7 +204,8 @@ export function Sidebar() {
   }
 
   return (
-    <aside className="sidebar" aria-label="Main">
+    <aside ref={asideRef} className="sidebar" aria-label="Main">
+      <span ref={indicatorRef} className="nav-indicator" aria-hidden="true" />
       <div className="sidebar__brand">
         <Logo size={32} />
         <span className="sidebar__wordmark">NEXUS</span>

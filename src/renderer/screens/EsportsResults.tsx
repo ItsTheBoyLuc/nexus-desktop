@@ -3,7 +3,7 @@ import { useCallback, useState } from 'react'
 import { RACING_LIMITS, validateRacingResultDraft } from '../../shared/racingValidation'
 import type { RacingResultField } from '../../shared/racingValidation'
 import type { RacingResult } from '../../shared/types'
-import { Button, EmptyState, ErrorState, LoadingRegion, Modal, Notice, PageHeader, Select, Skeleton, SortHeader, TextField, useToast } from '../components'
+import { Button, EmptyState, ErrorState, LoadingRegion, Modal, Notice, PageHeader, Select, Skeleton, SortHeader, Stagger, TextField, useToast } from '../components'
 import { useRacingTeams } from '../hooks/data'
 import { usePagedList } from '../hooks/paged'
 import { useManageDenied } from '../hooks/useFiaDenied'
@@ -300,7 +300,7 @@ function ResultsScreen({ ctx }: { ctx: EsportsContext }) {
                   <th scope="col">Drivers</th>
                 </tr>
               </thead>
-              <tbody>
+              <Stagger as="tbody">
                 {rows.length === 0 ? (
                   <tr>
                     <td colSpan={5} className="table__empty">
@@ -320,7 +320,7 @@ function ResultsScreen({ ctx }: { ctx: EsportsContext }) {
                     <td className="plain-text">{entry.drivers}</td>
                   </tr>
                 ))}
-              </tbody>
+              </Stagger>
             </table>
           </div>
           <p className="muted table-count" id="racing-results-count" aria-live="polite">

@@ -11,6 +11,8 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   /** Square icon button: pass an aria-label. */
   iconOnly?: boolean
   block?: boolean
+  /** Removes or undoes something (delete, remove, clear, ban): it never glows or lifts on hover, so it never looks like the inviting action. */
+  destructive?: boolean
   ref?: Ref<HTMLButtonElement>
 }
 
@@ -21,6 +23,7 @@ export function Button({
   icon,
   iconOnly = false,
   block = false,
+  destructive = false,
   disabled,
   className,
   children,
@@ -33,6 +36,7 @@ export function Button({
     size === 'sm' ? 'btn--sm' : '',
     iconOnly ? 'btn--icon' : '',
     block ? 'btn--block' : '',
+    destructive ? 'btn--destructive' : '',
     className ?? ''
   ]
     .filter(Boolean)

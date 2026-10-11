@@ -49,6 +49,7 @@
 
 /* ── Sidebar ──────────────────────────────────────────────────────────────── */
 .sidebar {
+  position: relative; /* the sliding indicator is positioned inside it */
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
@@ -99,7 +100,7 @@ a.nav-item:hover { background: var(--color-elevated); color: var(--color-text); 
 .nav-item--active {
   background: var(--color-elevated);
   color: var(--color-text);
-  border-left-color: var(--color-primary);
+  /* the red bar next to the active item is the one sliding .nav-indicator (motion.css) */
 }
 .nav-item--disabled { opacity: 0.45; cursor: not-allowed; }
 
@@ -234,7 +235,7 @@ button.nav-item:hover:not(.nav-item--disabled) { background: var(--color-elevate
 .nav-item__label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nav-item--disabled { cursor: not-allowed; }
 .nav-item--sub { min-height: 36px; padding-left: 28px; font-size: 13px; }
-.nav-sublist { list-style: none; margin: 2px 0 6px; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.nav-sublist { list-style: none; margin: 0; padding: 2px 0 6px; display: flex; flex-direction: column; gap: 2px; }
 .nav-group { display: flex; flex-direction: column; }
 .sidebar__nav--modules { flex: none; }
 .sidebar__hint { padding: 0 12px; color: var(--color-muted); font-size: 12px; }

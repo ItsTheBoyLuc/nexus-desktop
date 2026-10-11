@@ -1,7 +1,7 @@
 import { ArrowLeft, BarChart3, Plus, RotateCw, UserMinus, UserPlus, Users } from 'lucide-react'
 import { useState } from 'react'
 import type { Team, TeamDriver } from '../../shared/types'
-import { Badge, Button, Card, ConfirmDialog, EmptyState, ErrorState, LoadingRegion, Notice, PageHeader, Select, Skeleton, SortHeader, TextField, useToast, WriteProblemNotice } from '../components'
+import { Badge, Button, Card, ConfirmDialog, EmptyState, ErrorState, LoadingRegion, Notice, PageHeader, Select, Skeleton, SortHeader, Stagger, TextField, useToast, WriteProblemNotice } from '../components'
 import { useTeams } from '../hooks/data'
 import { useWriteAction } from '../hooks/useWriteAction'
 import { describeError, errorCode, unwrap, writeProblem } from '../lib/errors'
@@ -62,7 +62,7 @@ function TeamList({ teams, onOpen }: { teams: Team[]; onOpen: (team: Team) => vo
               <SortHeader label="Points" column="points" sort={sort} onSort={onSort} numeric />
             </tr>
           </thead>
-          <tbody>
+          <Stagger as="tbody">
             {rows.length === 0 ? (
               <tr>
                 <td colSpan={4} className="table__empty">
@@ -85,7 +85,7 @@ function TeamList({ teams, onOpen }: { teams: Team[]; onOpen: (team: Team) => vo
                 <td className="table__num">{team.points}</td>
               </tr>
             ))}
-          </tbody>
+          </Stagger>
         </table>
       </div>
       <p className="muted table-count" id="teams-count" aria-live="polite">
@@ -186,7 +186,7 @@ function TeamDetail({ guildId, team, onBack }: { guildId: string; team: Team; on
                   </th>
                 </tr>
               </thead>
-              <tbody>
+              <Stagger as="tbody">
                 {rows.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="table__empty">
@@ -212,7 +212,7 @@ function TeamDetail({ guildId, team, onBack }: { guildId: string; team: Team; on
                     </td>
                   </tr>
                 ))}
-              </tbody>
+              </Stagger>
             </table>
           </div>
           <p className="muted table-count" id="roster-count" aria-live="polite">

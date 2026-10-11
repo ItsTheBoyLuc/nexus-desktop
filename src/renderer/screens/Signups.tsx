@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { SIGNUP_LIMITS, validateSignupDraft } from '../../shared/attendanceValidation'
 import type { SignupField } from '../../shared/attendanceValidation'
 import type { Signup, SignupCloseResult, SignupCreateResult } from '../../shared/types'
-import { Badge, Button, Card, CopyButton, EmptyState, ErrorState, LoadingRegion, Modal, Notice, PageHeader, SearchSelect, Select, Skeleton, SortHeader, Tabs, tabPanelProps, TextField, useToast } from '../components'
+import { Badge, Button, Card, CopyButton, EmptyState, ErrorState, LoadingRegion, Modal, Notice, PageHeader, SearchSelect, Select, Skeleton, SortHeader, Stagger, tabPanelProps, Tabs, TextField, useToast } from '../components'
 import { useGuildChannels, useSignup, useSignups } from '../hooks/data'
 import { useWriteAction } from '../hooks/useWriteAction'
 import { describeError, errorCode, fieldErrorFor, outcomeUnknown, unwrap } from '../lib/errors'
@@ -386,7 +386,7 @@ function SignupList({ guildId, onOpen, onCreate }: { guildId: string; onOpen: (s
                   <SortHeader label="Created" column="created" sort={sort} onSort={onSort} />
                 </tr>
               </thead>
-              <tbody>
+              <Stagger as="tbody">
                 {rows.length === 0 ? (
                   <tr>
                     <td colSpan={5} className="table__empty">
@@ -409,7 +409,7 @@ function SignupList({ guildId, onOpen, onCreate }: { guildId: string; onOpen: (s
                     <td>{formatDay(signup.createdAt)}</td>
                   </tr>
                 ))}
-              </tbody>
+              </Stagger>
             </table>
           </div>
           <p className="muted table-count" id="signups-count" aria-live="polite">

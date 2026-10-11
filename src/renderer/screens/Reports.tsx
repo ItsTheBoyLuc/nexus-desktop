@@ -3,7 +3,7 @@ import { useMemo, useState } from 'react'
 import { REPORT_FILTER_LIMITS, validateReportFilters } from '../../shared/penaltyValidation'
 import type { ReportFilterDraft, ReportFilterField } from '../../shared/penaltyValidation'
 import type { ReportRoundRow } from '../../shared/types'
-import { Badge, Button, Card, EmptyState, ErrorState, LoadingRegion, Notice, PageHeader, Select, Skeleton, SortHeader, Tabs, tabPanelProps, TextField } from '../components'
+import { Badge, Button, Card, EmptyState, ErrorState, LoadingRegion, Notice, PageHeader, Select, Skeleton, SortHeader, Stagger, tabPanelProps, Tabs, TextField } from '../components'
 import { useReportRound, useReportRounds } from '../hooks/data'
 import { useDebounced } from '../hooks/useDebounced'
 import { useReportList } from '../hooks/reports'
@@ -169,7 +169,7 @@ function RoundsOverview({ guildId, onOpenRound }: { guildId: string; onOpenRound
               <SortHeader label="No further action" column="nfa" sort={sort} onSort={onSort} numeric />
             </tr>
           </thead>
-          <tbody>
+          <Stagger as="tbody">
             {rows.length === 0 ? (
               <tr>
                 <td colSpan={6} className="table__empty">
@@ -194,7 +194,7 @@ function RoundsOverview({ guildId, onOpenRound }: { guildId: string; onOpenRound
                 <td className="table__num">{row.noFurtherAction}</td>
               </tr>
             ))}
-          </tbody>
+          </Stagger>
         </table>
       </div>
       <p className="muted table-count" id="rounds-count" aria-live="polite">

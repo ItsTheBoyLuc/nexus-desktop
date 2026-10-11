@@ -176,7 +176,7 @@ export function RemoveMemberDialog({ guildId, game, gameLabel, team, entry, onCl
           <Button variant="secondary" data-autofocus disabled={write.busy} onClick={onClose}>
             Cancel
           </Button>
-          <Button loading={write.busy} disabled={lost || manage.denied} onClick={() => void remove()}>
+          <Button destructive loading={write.busy} disabled={lost || manage.denied} onClick={() => void remove()}>
             Remove from the roster
           </Button>
         </>

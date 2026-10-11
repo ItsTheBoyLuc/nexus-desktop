@@ -184,7 +184,8 @@ code { font-family: ui-monospace, 'Cascadia Code', Consolas, monospace; font-siz
 .table th, .table td { padding: 10px 12px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--color-border); overflow-wrap: anywhere; }
 .table tbody tr:last-child > * { border-bottom: 0; }
 .table thead th { background: var(--color-elevated); font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-muted); white-space: nowrap; }
-.table tbody tr:hover { background: #141414; }
+.table tbody tr { transition: background var(--motion-micro) var(--ease); }
+.table tbody tr:hover { background: rgba(255, 255, 255, 0.03); }
 .table__key { font-weight: 700; font-family: var(--font-body); }
 .table__num { font-variant-numeric: tabular-nums; }
 .table__note { display: block; color: var(--color-muted); font-size: 12px; margin-top: 2px; }

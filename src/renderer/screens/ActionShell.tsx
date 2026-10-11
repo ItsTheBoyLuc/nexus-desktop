@@ -131,7 +131,7 @@ export function ActionShell<T>({ title, confirmTitle, confirmLabel, form, review
             <Button variant="secondary" data-autofocus disabled={write.busy} onClick={() => setStep('form')}>
               Back
             </Button>
-            <Button loading={write.busy} onClick={() => void confirm()}>
+            <Button destructive loading={write.busy} onClick={() => void confirm()}>
               {confirmLabel}
             </Button>
           </>
