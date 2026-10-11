@@ -1,9 +1,8 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { GAME_KEYS } from '../shared/types'
 import type { RacingGame } from '../shared/types'
-import { ApiClient } from './apiClient'
-import type { RequestOptions } from './apiClient'
 import { createRacingApi } from './racingApi'
+import { dropped, hang, json, realClient, setup } from './racingApiTestKit'
 
 /**
  * Milestone 5, part 2: the results archive, attendance posts and announcements of every one of the five games.
@@ -11,37 +10,6 @@ import { createRacingApi } from './racingApi'
  */
 const G = '555000000000000001'
 const BASE = `/api/app/v1/guilds/${G}/racing`
-
-function setup(...answers: unknown[]) {
-  const calls: RequestOptions[] = []
-  const queue = [...answers]
-  const request = vi.fn(async (options: RequestOptions) => {
-    calls.push(options)
-    const next = queue.shift()
-    if (next instanceof Error) throw next
-    return next
-  })
-  return { api: createRacingApi({ request } as unknown as ApiClient), calls, request }
-}
-
-/** A client that really runs the ApiClient (timeouts, retry rules), with a scripted network. */
-function realClient(handler: (signal: AbortSignal | undefined) => Promise<Response>) {
-  let calls = 0
-  const fetchImpl = (async (_input: string | URL | Request, init?: RequestInit) => {
-    calls++
-    return handler(init?.signal ?? undefined)
-  }) as typeof fetch
-  const client = new ApiClient({ baseUrl: 'https://api.test', fetchImpl, timeoutMs: 30, wakeAfterMs: 1000, sleep: async () => undefined })
-  client.setSession({ access_token: 'access', refresh_token: 'refresh' })
-  return { api: createRacingApi(client), calls: () => calls }
-}
-const hang = (signal: AbortSignal | undefined): Promise<Response> => new Promise((_resolve, reject) => signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))))
-const dropped = async (): Promise<Response> => {
-  const error = new TypeError('fetch failed')
-  ;(error as { cause?: unknown }).cause = Object.assign(new Error('ECONNRESET'), { code: 'ECONNRESET' })
-  throw error
-}
-const json = (status: number, body: unknown): Response => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
 
 const resultJson = (over: Record<string, unknown> = {}) => ({
   id: 'r1', event_name: 'Fake Round 1', team_name: 'Fake Team Alpha', result: 'P3 in GT3', drivers: 'Fake Driver 001, Fake Driver 002', notes: 'fake notes', logged_by: '1001', logged_at: '2026-01-01T00:00:00Z', ...over

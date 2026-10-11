@@ -4,6 +4,10 @@ import type {
   AdvanceRaceInput,
   AdvanceRaceResult,
   RacingDriverProfile,
+  RacingAttendanceInput,
+  RacingAttendancePage,
+  RacingAttendancePost,
+  RacingAttendanceResult,
   RacingEvent,
   RacingEventInput,
   RacingEventPage,
@@ -236,6 +240,11 @@ export interface NexusBridge {
     addRacingEvent: (guildId: string, game: RacingGame, input: RacingEventInput) => Promise<IpcResult<RacingEvent>>
     /** The append-only results archive (oldest first); `team` gives the team stats. */
     racingResults: (guildId: string, game: RacingGame, query?: RacingResultQuery) => Promise<IpcResult<RacingResultPage>>
+    racingAttendance: (guildId: string, game: RacingGame, page?: { limit?: number; offset?: number }) => Promise<IpcResult<RacingAttendancePage>>
+    /** The names of the drivers are personal data: keep them in memory only. */
+    racingAttendancePost: (guildId: string, game: RacingGame, messageId: string) => Promise<IpcResult<RacingAttendancePost>>
+    /** Needs Manage Server, Administrator or a Manager or Coach of one of THIS game's teams. A lost answer may already have posted the message: never repeat it with the same data. */
+    createRacingAttendance: (guildId: string, game: RacingGame, input: RacingAttendanceInput) => Promise<IpcResult<RacingAttendanceResult>>
     /** Appends an entry. Written once, never replayed: the same result twice is two entries. */
     logRacingResult: (guildId: string, game: RacingGame, input: RacingResultInput) => Promise<IpcResult<RacingResult>>
 

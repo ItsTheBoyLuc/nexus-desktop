@@ -52,7 +52,8 @@ describe('participant data is never written to disk or browser storage', () => {
       'renderer/screens/RacingTeamDialog.tsx',
       'renderer/screens/EsportsEvents.tsx',
       // milestone 5, part 2: the results archive names drivers, and the attendance lists name members
-      'renderer/screens/EsportsResults.tsx'
+      'renderer/screens/EsportsResults.tsx',
+      'renderer/screens/EsportsAttendance.tsx'
     ]
     for (const name of handlers) {
       const text = read(join(SRC, name))

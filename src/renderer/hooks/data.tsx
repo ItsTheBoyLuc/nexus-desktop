@@ -16,6 +16,7 @@ import type {
   PenaltyOverview,
   PenaltySettings,
   PointsSystem,
+  RacingAttendancePost,
   RacingDriverProfile,
   RacingGame,
   RacingTeam,
@@ -238,6 +239,10 @@ export function useRacingTeams(guildId: string | undefined, game: RacingGame): L
 
 export function useRacingTeam(guildId: string | undefined, game: RacingGame, name: string | null): Loaded<RacingTeamDetail> {
   return useApiData(guildId && name ? racingKey(guildId, game, 'team', name.toLowerCase()) : null, () => unwrap(window.nexus.api.racingTeam(guildId ?? '', game, name ?? '')), false)
+}
+
+export function useRacingAttendancePost(guildId: string | undefined, game: RacingGame, messageId: string | null): Loaded<RacingAttendancePost> {
+  return useApiData(guildId && messageId ? racingKey(guildId, game, 'attendance-post', messageId) : null, () => unwrap(window.nexus.api.racingAttendancePost(guildId ?? '', game, messageId ?? '')), false)
 }
 
 export function useRacingDriver(guildId: string | undefined, game: RacingGame, userId: string | null): Loaded<RacingDriverProfile> {

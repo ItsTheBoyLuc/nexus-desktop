@@ -11,6 +11,7 @@ import { Attendance } from './screens/Attendance'
 import { Calendar } from './screens/Calendar'
 import { ComingSoon } from './screens/ComingSoon'
 import { DirtyDrivers } from './screens/DirtyDrivers'
+import { EsportsAttendance } from './screens/EsportsAttendance'
 import { EsportsEvents } from './screens/EsportsEvents'
 import { EsportsPending } from './screens/EsportsPending'
 import { EsportsResults } from './screens/EsportsResults'
@@ -99,7 +100,7 @@ export function App() {
                   <Route path="teams" element={<EsportsTeams />} />
                   <Route path="events" element={<EsportsEvents />} />
                   <Route path="results" element={<EsportsResults />} />
-                  <Route path="attendance" element={<EsportsPending page="attendance" />} />
+                  <Route path="attendance" element={<EsportsAttendance />} />
                   <Route path="announcement" element={<EsportsPending page="announcement" />} />
                 </Route>
                 <Route path="*" element={<Navigate to="/" replace />} />

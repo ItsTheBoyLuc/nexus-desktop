@@ -1,5 +1,12 @@
+import { isMessageId } from '../shared/attendanceValidation'
 import { isRacingGame } from '../shared/racingValidation'
 import type {
+  RacingAttendanceInput,
+  RacingAttendancePage,
+  RacingAttendancePost,
+  RacingAttendanceResult,
+  RacingAttendanceSummary,
+  RacingAttendeeRow,
   RacingDriverProfile,
   RacingEvent,
   RacingEventInput,
@@ -47,6 +54,12 @@ export interface RacingApi {
   racingResults: (guildId: string, game: RacingGame, query?: RacingResultQuery) => Promise<RacingResultPage>
   /** Appends one entry. Never replayed: logging the same result twice creates two entries. */
   logRacingResult: (guildId: string, game: RacingGame, input: RacingResultInput) => Promise<RacingResult>
+  /** Attendance posts of the game, newest first, paged as the server pages them. */
+  racingAttendance: (guildId: string, game: RacingGame, page?: { limit?: number; offset?: number }) => Promise<RacingAttendancePage>
+  /** One post with the names of the drivers who pressed Available and Not Available (read-only: drivers set their own status in Discord). */
+  racingAttendancePost: (guildId: string, game: RacingGame, messageId: string) => Promise<RacingAttendancePost>
+  /** Posts the embed with its buttons in Discord. Never replayed: a lost answer may already have posted the message. */
+  createRacingAttendance: (guildId: string, game: RacingGame, input: RacingAttendanceInput) => Promise<RacingAttendanceResult>
 }
 
 const str = (value: unknown, max: number): string => (typeof value === 'string' ? value.slice(0, max) : typeof value === 'number' && Number.isFinite(value) ? String(value).slice(0, max) : '')
@@ -119,6 +132,45 @@ function parseResult(json: unknown): RacingResult {
     loggedBy: str(json['logged_by'], 40),
     loggedAt: str(json['logged_at'], 40)
   }
+}
+
+function parseAttendee(json: unknown): RacingAttendeeRow {
+  if (!isRecord(json) || !isValidSnowflake(json['user_id'])) throw invalid('attendance')
+  return { userId: json['user_id'], name: optionalText(json['name'], 100), inServer: json['in_server'] !== false }
+}
+
+function parseAttendees(value: unknown): RacingAttendeeRow[] {
+  if (!Array.isArray(value)) throw invalid('attendance')
+  return value.slice(0, 500).map(parseAttendee)
+}
+
+function parseAttendanceSummary(json: unknown): RacingAttendanceSummary {
+  if (!isRecord(json) || !isMessageId(json['message_id']) || typeof json['name'] !== 'string') throw invalid('attendance post')
+  const counts = isRecord(json['counts']) ? json['counts'] : {}
+  return {
+    messageId: json['message_id'],
+    name: json['name'].slice(0, 200),
+    date: str(json['date'], 60),
+    description: str(json['description'], 1000),
+    createdBy: str(json['created_by'], 40),
+    createdAt: str(json['created_at'], 40),
+    counts: { available: countOr(counts['available'], 0), unavailable: countOr(counts['unavailable'], 0) }
+  }
+}
+
+/**
+ * One post as the single read returns it: the fields of a list row plus `attendance`. The lists are the truth: when the answer has no
+ * `counts` they are taken from the lists. `requireLists` is false only for the answer of creating a post (a new post has nobody yet).
+ */
+function parseAttendancePost(json: unknown, requireLists: boolean): RacingAttendancePost {
+  const summary = parseAttendanceSummary(json)
+  if (!isRecord(json)) throw invalid('attendance post')
+  const raw = json['attendance']
+  if (!isRecord(raw) && requireLists) throw invalid('attendance post')
+  const lists = isRecord(raw) ? raw : {}
+  const attendance = { available: lists['available'] === undefined && !requireLists ? [] : parseAttendees(lists['available']), unavailable: lists['unavailable'] === undefined && !requireLists ? [] : parseAttendees(lists['unavailable']) }
+  const counts = isRecord(json['counts']) ? summary.counts : { available: attendance.available.length, unavailable: attendance.unavailable.length }
+  return { ...summary, counts, attendance }
 }
 
 export function createRacingApi(client: ApiClient): RacingApi {
@@ -242,6 +294,34 @@ export function createRacingApi(client: ApiClient): RacingApi {
       })
       if (!isRecord(json)) throw invalid('result')
       return parseResult(json['result'])
+    },
+
+    async racingAttendance(guildId, game, page = {}) {
+      const json = await client.request({ path: `${racingPath(guildId, game, 'attendance')}${query({ limit: page.limit, offset: page.offset })}` })
+      if (!isRecord(json) || !isCount(json['total'])) throw invalid('attendance posts')
+      return { total: json['total'], limit: countOr(json['limit'], 25), offset: countOr(json['offset'], 0), posts: list(json, 'posts', 'attendance posts').map(parseAttendanceSummary) }
+    },
+
+    async racingAttendancePost(guildId, game, messageId) {
+      if (!isMessageId(messageId)) throw clientError('invalid_message_id', 'That post ID is not valid.')
+      return parseAttendancePost(await client.request({ path: racingPath(guildId, game, `attendance/${messageId}`) }), true)
+    },
+
+    async createRacingAttendance(guildId, game, input) {
+      if (!isValidSnowflake(input.channelId)) throw clientError('invalid_channel', 'That channel is not valid.')
+      // One attempt, never replayed: a lost answer may already have posted the message in Discord.
+      const json = await client.request({
+        method: 'POST',
+        path: racingPath(guildId, game, 'attendance'),
+        body: {
+          channel_id: input.channelId,
+          name: input.name,
+          date: input.date,
+          ...(input.description !== undefined && input.description !== '' ? { description: input.description } : {})
+        }
+      })
+      if (!isRecord(json) || !isValidSnowflake(json['channel_id'])) throw invalid('attendance post')
+      return { post: parseAttendancePost(json['post'], false), channelId: json['channel_id'] }
     }
   }
 }

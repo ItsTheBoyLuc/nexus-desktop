@@ -10,12 +10,15 @@
  *   noracingteams   no esports team anywhere (the empty state)
  *   nomanage        staff without Manage Server: creating a team, adding or removing a roster member and adding an event answer 403 manage_server_required
  *   nomanageroles   the bot lacks Manage Roles: creating a team and adding a roster member answer 403 bot_missing_manage_roles (nothing is created)
- *   lostracing      creating a team, adding an event and logging a result ARE applied, then the answer is lost (timeout)
+ *   lostracing      creating a team, adding an event, logging a result, creating an attendance post and posting an announcement ARE applied, then the answer is lost (timeout)
  *   noresults       every results archive is empty (the empty state)
+ *   noattendance    no attendance post anywhere (the empty list)
+ *   nomanager       creating an attendance post and posting an announcement answer 403 manager_required for every game
+ *   nomanager-gt7   the same for ONE game only (any game key): the rule is per game, so the other four games still work
  *   nostaff         (existing) every call answers 403 forbidden
  *
  * Hooks (normal scenario):
- *   a team, event name or logged event name containing "timeout"   it IS created, then the answer is lost
+ *   a team, event name, logged event name, attendance post name or announcement title containing "timeout", or the channel #timeout   it IS done, then the answer is lost
  *   a team name equal to an existing one, in any case   409 team_exists
  *   an unknown {game}   404 unknown_game (the real app never sends one: the bridge refuses it first)
  *
@@ -29,6 +32,11 @@ import { isPastDate, isRacingGame, parseEventDate } from '../../shared/racingVal
 import type {
   IpcResult,
   RacingDriverProfile,
+  RacingAttendancePage,
+  RacingAttendancePost,
+  RacingAttendanceResult,
+  RacingAttendanceSummary,
+  RacingAttendeeRow,
   RacingEvent,
   RacingEventPage,
   RacingGame,
@@ -45,7 +53,7 @@ import { failure, notFound, refused, timeoutFailure } from './common'
 import type { F1MockContext } from './f1Mock'
 import { MEMBERS } from './f1Mock'
 
-type RacingMockApi = Pick<NexusBridge['api'], 'racingTeams' | 'racingTeam' | 'createRacingTeam' | 'addRosterMember' | 'removeRosterMember' | 'racingDriver' | 'racingEvents' | 'addRacingEvent' | 'racingResults' | 'logRacingResult'>
+type RacingMockApi = Pick<NexusBridge['api'], 'racingTeams' | 'racingTeam' | 'createRacingTeam' | 'addRosterMember' | 'removeRosterMember' | 'racingDriver' | 'racingEvents' | 'addRacingEvent' | 'racingResults' | 'logRacingResult' | 'racingAttendance' | 'racingAttendancePost' | 'createRacingAttendance'>
 
 const DAY_MS = 86_400_000
 const pad = (n: number, size = 3): string => String(n).padStart(size, '0')
@@ -83,10 +91,22 @@ interface GameState {
   events: RacingEvent[]
   /** The append-only archive, oldest first. */
   results: RacingResult[]
+  /** Attendance posts, newest first. The buttons are pressed in Discord, so the app can only read these lists. */
+  posts: PostState[]
+}
+interface PostState {
+  messageId: string
+  name: string
+  date: string
+  description: string
+  createdAt: string
+  /** Member ids, in the order they pressed the button. */
+  available: string[]
+  unavailable: string[]
 }
 type GuildStates = Record<RacingGame, GameState>
 
-const emptyGame = (): GameState => ({ teams: [], events: [], results: [] })
+const emptyGame = (): GameState => ({ teams: [], events: [], results: [], posts: [] })
 const emptyGuild = (): GuildStates => Object.fromEntries(GAME_KEYS.map((game) => [game, emptyGame()])) as GuildStates
 
 let roleCounter = 0
@@ -138,6 +158,26 @@ function seedResults(prefix: string, teams: readonly string[], className: string
   })
 }
 
+let postCounter = 0
+const postId = (): string => `70000000000000${pad(++postCounter, 4)}`
+
+/**
+ * Attendance posts of a game, newest first: one with 24+ drivers (one of them has left the server), a small one with html-looking
+ * text, one nobody answered yet, and `extra` older ones to page through.
+ */
+function seedPosts(label: string, extra = 0): PostState[] {
+  const big: PostState = {
+    messageId: postId(), name: `${label} Fake Big Practice`, date: isoDay(3), description: 'A fake post with more than twenty drivers.', createdAt: stamp(2),
+    available: Array.from({ length: 24 }, (_, index) => FAKE_ROSTER[index]!.id), unavailable: [30, 31, 32, 33, 34, 35].map((index) => FAKE_ROSTER[index]!.id)
+  }
+  const small: PostState = { messageId: postId(), name: `${label} <b>Fake</b> Race Night & more`, date: isoDay(10), description: '', createdAt: stamp(4), available: [FAKE_ROSTER[0]!.id, FAKE_ROSTER[1]!.id], unavailable: [FAKE_ROSTER[3]!.id] }
+  const nobody: PostState = { messageId: postId(), name: `${label} Fake Quiet Session With A Rather Long Name To Check The Layout Of The Table`, date: isoDay(17), description: 'Nobody has answered yet.', createdAt: stamp(1), available: [], unavailable: [] }
+  const older = Array.from({ length: extra }, (_, index): PostState => ({
+    messageId: postId(), name: `${label} Fake Old Session ${pad(index + 1, 2)}`, date: isoDay(-5 - index), description: '', createdAt: stamp(10 + index), available: [FAKE_ROSTER[index % 40]!.id], unavailable: []
+  }))
+  return [nobody, big, small, ...older]
+}
+
 function seedApex(): GuildStates {
   const state = emptyGuild()
   state.lmu = {
@@ -147,7 +187,8 @@ function seedApex(): GuildStates {
       team('Fake Empty Team', '#6B7280', '', [])
     ],
     events: seedEvents('lmu', 'LMU', 'Hypercar'),
-    results: seedResults('lmu', ['Fake Endurance Racing', 'Fake GT Squad'], 'Hypercar', 55)
+    results: seedResults('lmu', ['Fake Endurance Racing', 'Fake GT Squad'], 'Hypercar', 55),
+    posts: seedPosts('LMU')
   }
   state.iracing = {
     teams: [
@@ -158,17 +199,18 @@ function seedApex(): GuildStates {
       ...seedEvents('ir', 'iRacing', 'GT3'),
       ...Array.from({ length: 30 }, (_, index) => event(`ir-x${index}`, `iRacing Fake Series Race ${pad(index + 1, 2)}`, isoDay(20 + index), '20:00 UTC', index % 2 === 0 ? 'GT3' : 'LMP2', ''))
     ],
-    results: seedResults('ir', ['Fake Mega Squad', 'Fake Role Deleted Team'], 'GT3', 120)
+    results: seedResults('ir', ['Fake Mega Squad', 'Fake Role Deleted Team'], 'GT3', 120),
+    posts: seedPosts('iRacing', 120)
   }
-  state.gt7 = { teams: [team('Fake Gran Turismo Team', '#0EA5E9', 'Gr.3', [[6, 'Manager'], [7, 'Race Driver']])], events: seedEvents('gt', 'GT7', 'Gr.3').slice(0, 2), results: seedResults('gt', ['Fake Gran Turismo Team'], 'Gr.3', 52) }
-  state.acc = { teams: [team('Fake ACC Team One', '#A855F7', 'GT3 Pro', [[8, 'Race Driver']]), team('Fake ACC Team Two', '#F97316', 'Cup', [[9, 'Coach'], [10, 'Race Driver']])], events: seedEvents('acc', 'ACC', 'GT3 Pro').slice(0, 3), results: seedResults('acc', ['Fake ACC Team One', 'Fake ACC Team Two'], 'GT3 Pro', 58) }
-  state.f1 = { teams: [team('Fake F1 Esports A', '#E10600', 'Formula 1 Esports', [[11, 'Manager'], [12, 'Race Driver'], [13, 'Race Driver']]), team('Fake F1 Esports B', '#FF8000', '', [])], events: seedEvents('f1', 'F1 Esports', 'Pro').slice(0, 2), results: seedResults('f1', ['Fake F1 Esports A', 'Fake F1 Esports B'], 'Pro', 54) }
+  state.gt7 = { teams: [team('Fake Gran Turismo Team', '#0EA5E9', 'Gr.3', [[6, 'Manager'], [7, 'Race Driver']])], events: seedEvents('gt', 'GT7', 'Gr.3').slice(0, 2), results: seedResults('gt', ['Fake Gran Turismo Team'], 'Gr.3', 52), posts: seedPosts('GT7') }
+  state.acc = { teams: [team('Fake ACC Team One', '#A855F7', 'GT3 Pro', [[8, 'Race Driver']]), team('Fake ACC Team Two', '#F97316', 'Cup', [[9, 'Coach'], [10, 'Race Driver']])], events: seedEvents('acc', 'ACC', 'GT3 Pro').slice(0, 3), results: seedResults('acc', ['Fake ACC Team One', 'Fake ACC Team Two'], 'GT3 Pro', 58), posts: seedPosts('ACC') }
+  state.f1 = { teams: [team('Fake F1 Esports A', '#E10600', 'Formula 1 Esports', [[11, 'Manager'], [12, 'Race Driver'], [13, 'Race Driver']]), team('Fake F1 Esports B', '#FF8000', '', [])], events: seedEvents('f1', 'F1 Esports', 'Pro').slice(0, 2), results: seedResults('f1', ['Fake F1 Esports A', 'Fake F1 Esports B'], 'Pro', 54), posts: seedPosts('F1 Esports') }
   return state
 }
 
 function seedMidnight(): GuildStates {
   const state = emptyGuild()
-  state.lmu = { teams: [team('Fake Midnight Endurance Team With A Rather Long Name To Check The Layout', '#7C3AED', 'Hypercar and a very long free-text focus text', [[20, 'Manager'], [21, 'Race Driver']])], events: [], results: [] }
+  state.lmu = { teams: [team('Fake Midnight Endurance Team With A Rather Long Name To Check The Layout', '#7C3AED', 'Hypercar and a very long free-text focus text', [[20, 'Manager'], [21, 'Race Driver']])], events: [], results: [], posts: [] }
   return state
 }
 
@@ -176,6 +218,7 @@ export function createRacingMock(ctx: F1MockContext): { api: RacingMockApi } {
   const scenario = ctx.scenario
   const states: Record<string, GuildStates> = { [ctx.apex]: seedApex(), [ctx.midnight]: seedMidnight() }
   if (scenario === 'noracingteams') for (const guild of Object.values(states)) for (const game of GAME_KEYS) guild[game] = emptyGame()
+  if (scenario === 'noattendance') for (const guild of Object.values(states)) for (const game of GAME_KEYS) guild[game].posts = []
   if (scenario === 'noresults') for (const guild of Object.values(states)) for (const game of GAME_KEYS) guild[game].results = []
   const stateOf = (guildId: string): GuildStates => (states[guildId] ??= emptyGuild())
 
@@ -189,6 +232,22 @@ export function createRacingMock(ctx: F1MockContext): { api: RacingMockApi } {
     if (nostaff) return refused('forbidden', 'You need the Administrator permission, or the FIA or STAFF role, in this server.')
     return run(stateOf(guildId)[game])
   }
+  /**
+   * Posting an attendance post or an announcement needs Manage Server, Administrator or a Manager or Coach of a team of THIS game.
+   * `nomanager` refuses it for every game, `nomanager-gt7` only for that game (the rule is per game).
+   */
+  const managerRefused = (game: RacingGame): boolean => scenario === 'nomanager' || scenario === `nomanager-${game}`
+  const managerGate = <T,>(guildId: string, game: string, run: (state: GameState) => IpcResult<T>): IpcResult<T> =>
+    gate(guildId, game, (state) => (isRacingGame(game) && managerRefused(game) ? refused('manager_required', 'You need Manage Server, Administrator, or to be a Manager or Coach of a team of this game.') : run(state)))
+  /** The channel checks the server runs before it posts anything. */
+  const channelProblem = (channelId: string): IpcResult<never> | null => {
+    if (channelId === ctx.hiddenChannel) return refused('forbidden', 'You cannot see that channel.')
+    if (!ctx.channels.some((channel) => channel.id === channelId)) return notFound('channel_not_found', 'That text channel was not found in this server.')
+    if (channelId === ctx.lockedChannel) return refused('bot_cannot_send', 'The bot cannot post in that channel.')
+    return null
+  }
+  const lostPost = (text: string, channelId: string): boolean => scenario === 'lostracing' || /timeout/i.test(text) || channelId === ctx.timeoutChannel
+
   /** Writes of the commands need Manage Server or Administrator. */
   const manage = <T,>(guildId: string, game: string, run: (state: GameState) => IpcResult<T>): IpcResult<T> =>
     gate(guildId, game, (state) => (scenario === 'nomanage' ? refused('manage_server_required', 'You need the Manage Server permission, or Administrator, to do this.') : run(state)))
@@ -203,6 +262,13 @@ export function createRacingMock(ctx: F1MockContext): { api: RacingMockApi } {
     name: item.name, color: item.color, focus: item.focus, roleId: item.roleId, roleName: item.roleExists ? item.name : null, roleExists: item.roleExists, memberCount: item.roster.length, createdBy: '100000000000000001', createdAt: item.createdAt
   })
   const detailView = (item: TeamState): RacingTeamDetail => ({ ...teamView(item), roster: item.roster.map(rosterRow) })
+
+  const attendee = (id: string): RacingAttendeeRow => ({ userId: id, name: KNOWN.get(id)?.name ?? null, inServer: inServer(id) })
+  const summaryView = (item: PostState): RacingAttendanceSummary => ({
+    messageId: item.messageId, name: item.name, date: item.date, description: item.description, createdBy: '100000000000000001', createdAt: item.createdAt,
+    counts: { available: item.available.length, unavailable: item.unavailable.length }
+  })
+  const postView = (item: PostState): RacingAttendancePost => ({ ...summaryView(item), attendance: { available: item.available.map(attendee), unavailable: item.unavailable.map(attendee) } })
 
   const todayIso = (): string => new Date().toISOString().slice(0, 10)
   /** Upcoming events, soonest first; past ones are left out; unreadable dates come last in stored order (like /racing event-calendar). */
@@ -325,6 +391,36 @@ export function createRacingMock(ctx: F1MockContext): { api: RacingMockApi } {
           state.results.push(created) // the same result twice is two entries: the archive never checks for duplicates
           if (lost(input.eventName)) return timeoutFailure() // appended, but the answer "got lost"
           return { ok: true, data: { ...created } }
+        })
+      ),
+
+    racingAttendance: (guildId, game, page = {}) =>
+      ctx.api<RacingAttendancePage>(() =>
+        gate(guildId, game, (state) => {
+          const limit = page.limit ?? 25
+          const offset = page.offset ?? 0
+          return { ok: true, data: { total: state.posts.length, limit, offset, posts: state.posts.slice(offset, offset + limit).map(summaryView) } }
+        })
+      ),
+
+    racingAttendancePost: (guildId, game, messageId) =>
+      ctx.api<RacingAttendancePost>(() =>
+        gate(guildId, game, (state) => {
+          const found = state.posts.find((item) => item.messageId === messageId)
+          return found ? { ok: true, data: postView(found) } : notFound('post_not_found', 'That attendance post was not found.')
+        })
+      ),
+
+    createRacingAttendance: (guildId, game, input) =>
+      ctx.api<RacingAttendanceResult>(() =>
+        managerGate(guildId, game, (state) => {
+          const problem = channelProblem(input.channelId)
+          if (problem) return problem
+          const created: PostState = { messageId: ctx.newMessageId(), name: input.name, date: input.date, description: input.description ?? '', createdAt: new Date().toISOString(), available: [], unavailable: [] }
+          ctx.liveMessages.add(created.messageId)
+          state.posts.unshift(created)
+          if (lostPost(`${input.name} ${input.description ?? ''}`, input.channelId)) return timeoutFailure() // posted and stored, but the answer "got lost"
+          return { ok: true, data: { post: postView(created), channelId: input.channelId } }
         })
       ),
 
