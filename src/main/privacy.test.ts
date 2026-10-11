@@ -116,6 +116,6 @@ describe('the settings file cannot be made to hold participant data', () => {
     store.set({ lastGame: 'f1' }) // any save rewrites the file from what the store knows
     const written = readFileSync(file, 'utf8')
     expect(written).not.toContain(SECRET)
-    expect(Object.keys(JSON.parse(written) as object).sort()).toEqual(['calendarPosts', 'lastGame', 'lastGuildId', 'ledger', 'panels'])
+    expect(Object.keys(JSON.parse(written) as object).sort()).toEqual(['calendarPosts', 'lastGame', 'lastGuildId', 'ledger', 'panels', 'reduceMotion'])
   })
 })

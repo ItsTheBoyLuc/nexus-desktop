@@ -602,7 +602,8 @@ export function installMockBridge(): void {
         settings = {
           ...settings,
           ...(patch.lastGuildId !== undefined ? { lastGuildId: patch.lastGuildId } : {}),
-          ...(patch.lastGame !== undefined ? { lastGame: patch.lastGame } : {})
+          ...(patch.lastGame !== undefined ? { lastGame: patch.lastGame } : {}),
+          ...(patch.reduceMotion !== undefined ? { reduceMotion: patch.reduceMotion } : {})
         }
         return clone(settings)
       }

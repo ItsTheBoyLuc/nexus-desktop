@@ -87,12 +87,4 @@ button:disabled { cursor: not-allowed; }
   border: 0;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-  }
-}
+/* Reduced motion (the operating system setting and the Reduce animations switch) is handled in motion.css. */

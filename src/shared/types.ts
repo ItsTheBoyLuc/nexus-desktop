@@ -1105,12 +1105,14 @@ export interface Settings {
   calendarPosts: Record<string, StoredPanel>
   /** Races this app recorded, oldest first (see shared/f1Store.ts). Only the main process writes it. */
   ledger: LedgerEntry[]
+  /** The "Reduce animations" switch of the Preferences popover. The operating system's own reduced-motion setting is honoured as well. */
+  reduceMotion: boolean
 }
 
-export const DEFAULT_SETTINGS: Settings = { lastGuildId: null, lastGame: null, panels: {}, calendarPosts: {}, ledger: [] }
+export const DEFAULT_SETTINGS: Settings = { lastGuildId: null, lastGame: null, panels: {}, calendarPosts: {}, ledger: [], reduceMotion: false }
 
 /** What the renderer may change itself; panels are only ever written by the main process. */
-export type SettingsPatch = Partial<Pick<Settings, 'lastGuildId' | 'lastGame'>>
+export type SettingsPatch = Partial<Pick<Settings, 'lastGuildId' | 'lastGame' | 'reduceMotion'>>
 
 // ── Esports teams, part 2 (milestone 5): results archive, attendance and announcements ──────────────────
 

@@ -129,7 +129,7 @@ describe('the settings file holds message ids only, never anything secret', () =
   it('stores nothing but lastGuildId, lastGame and panels', async () => {
     await postPanelAndRemember(fakeApi(), store, G, 'f1', 'T1', { channelId: CH })
     const json = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>
-    expect(Object.keys(json).sort()).toEqual(['calendarPosts', 'lastGame', 'lastGuildId', 'ledger', 'panels'])
+    expect(Object.keys(json).sort()).toEqual(['calendarPosts', 'lastGame', 'lastGuildId', 'ledger', 'panels', 'reduceMotion'])
     expect(json['panels']).toEqual({ [panelKey(G, 'f1', 'T1')]: { messageId: MSG, channelId: CH } })
   })
 

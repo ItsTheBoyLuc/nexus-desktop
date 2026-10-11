@@ -28,7 +28,19 @@ export const spacing = { 0: 0, 1: 8, 2: 16, 3: 24, 4: 32, 5: 40, 6: 48, 8: 64 } 
 
 export const radius = { card: 12, control: 8 } as const
 
-export const motion = { fast: '200ms', slow: '250ms', easing: 'ease' } as const
+/**
+ * Motion tokens. Durations: micro (hover, press, small fades), standard (cards, menus, dialogs), page (route changes).
+ * `stagger` is the delay between the items of a list entrance (capped at `staggerCap` items).
+ * `fast` and `slow` are the older names of micro and standard and still point at the same values.
+ */
+export const motion = {
+  micro: '150ms',
+  standard: '220ms',
+  page: '320ms',
+  stagger: '40ms',
+  staggerCap: 8,
+  easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)'
+} as const
 
 export const shadows = {
   glow: '0 0 0 1px rgba(255, 51, 51, 0.55), 0 0 24px rgba(255, 51, 51, 0.35)',
@@ -54,8 +66,12 @@ export function applyTheme(root: HTMLElement = document.documentElement): void {
   set('--radius-card', `${radius.card}px`)
   set('--radius-control', `${radius.control}px`)
 
-  set('--motion-fast', motion.fast)
-  set('--motion-slow', motion.slow)
+  set('--motion-micro', motion.micro)
+  set('--motion-standard', motion.standard)
+  set('--motion-page', motion.page)
+  set('--motion-stagger', motion.stagger)
+  set('--motion-fast', motion.micro)
+  set('--motion-slow', motion.standard)
   set('--ease', motion.easing)
 
   set('--shadow-glow', shadows.glow)

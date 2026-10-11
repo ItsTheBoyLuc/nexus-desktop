@@ -2,12 +2,15 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import type { ReactNode } from 'react'
 import { DEFAULT_SETTINGS } from '../../shared/types'
 import type { GameKey, Settings } from '../../shared/types'
+import { applyMotionMode } from '../lib/motion'
 
 interface SettingsContextValue {
   settings: Settings
   /** False until the saved settings file has been read. */
   loaded: boolean
   remember: (guildId: string | null, game: GameKey | null) => void
+  /** The "Reduce animations" switch: applied at once and saved in the settings file. */
+  setReduceMotion: (reduce: boolean) => void
   /** Re-read the file (after a panel was posted or forgotten: only the main process writes panels). */
   reload: () => Promise<void>
 }
@@ -44,6 +47,12 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     void window.nexus.settings.set({ lastGuildId: guildId, lastGame: game })
   }, [])
 
+  const setReduceMotion = useCallback((reduce: boolean) => {
+    applyMotionMode(document.documentElement, reduce) // no waiting for the file: the change is instant
+    setSettings((current) => (current.reduceMotion === reduce ? current : { ...current, reduceMotion: reduce }))
+    void window.nexus.settings.set({ reduceMotion: reduce })
+  }, [])
+
   const reload = useCallback(async () => {
     try {
       setSettings(await window.nexus.settings.get())
@@ -52,7 +61,11 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  const value = useMemo(() => ({ settings, loaded, remember, reload }), [settings, loaded, remember, reload])
+  useEffect(() => {
+    applyMotionMode(document.documentElement, settings.reduceMotion)
+  }, [settings.reduceMotion])
+
+  const value = useMemo(() => ({ settings, loaded, remember, setReduceMotion, reload }), [settings, loaded, remember, setReduceMotion, reload])
   return <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>
 }
 

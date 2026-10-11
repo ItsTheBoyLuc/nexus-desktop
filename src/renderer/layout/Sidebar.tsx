@@ -33,6 +33,7 @@ import { esportsModuleState, leagueModuleState, serverModuleState } from '../lib
 import type { ModuleState } from '../lib/modules'
 import { ESPORTS_PAGE_LABELS, ESPORTS_PAGES, gameHomePage, isLeaguePage, LEAGUE_PAGES, PAGE_LABELS, parseLocation, parseServerPage, routes, SERVER_PAGE_LABELS, SERVER_PAGES } from '../lib/routes'
 import type { EsportsPageKey, LeaguePageKey, ServerPageKey } from '../lib/routes'
+import { PreferencesMenu } from './PreferencesMenu'
 
 const SERVER_ICONS: Record<ServerPageKey, ReactNode> = {
   overview: <LayoutDashboard size={18} aria-hidden="true" />,
@@ -254,6 +255,7 @@ export function Sidebar() {
 
       <div className="sidebar__footer">
         <StatusLine />
+        <PreferencesMenu />
         {user ? (
           <MenuButton ariaLabel={`Account menu for ${user.username}`} items={userItems} placement="top" className="menu--block">
             <Avatar src={user.avatar} name={user.username} size={32} />

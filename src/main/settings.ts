@@ -8,7 +8,7 @@ import { isValidKey, isValidSnowflake } from '../shared/validation'
 import { log } from './log'
 
 /**
- * What the renderer may change: the last chosen server and game. Anything else, including
+ * What the renderer may change: the last chosen server and game and the Reduce animations switch. Anything else, including
  * `panels`, is dropped, so the renderer can neither forge nor wipe the panel registry.
  */
 export function sanitizeSettings(input: unknown): Partial<Settings> {
@@ -17,6 +17,7 @@ export function sanitizeSettings(input: unknown): Partial<Settings> {
   const clean: Partial<Settings> = {}
   if ('lastGuildId' in record) clean.lastGuildId = isValidSnowflake(record.lastGuildId) ? record.lastGuildId : null
   if ('lastGame' in record) clean.lastGame = isGameKey(record.lastGame) ? record.lastGame : null
+  if ('reduceMotion' in record) clean.reduceMotion = record.reduceMotion === true
   return clean
 }
 

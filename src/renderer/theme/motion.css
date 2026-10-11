@@ -1,0 +1,99 @@
+/*
+ * The motion layer: pure CSS, no animation library.
+ *
+ * Rules every block in this file follows:
+ *  - Only transform, opacity and stroke-dashoffset move. Colour and shadow transitions on hover are fine. The one exception is the
+ *    smooth expand and collapse of the sidebar groups (grid-template-rows), which has to change the height of the group.
+ *  - Durations and the easing come from the tokens in theme/tokens.ts: --motion-micro (150ms), --motion-standard (220ms),
+ *    --motion-page (320ms), --motion-stagger (40ms) and --ease.
+ *  - Entrances use `backwards` fill and only a `from` frame, so an element without its animation is simply in its normal place.
+ *    That is what makes the reduced-motion switch at the bottom of this file safe: it only has to remove the animations.
+ *  - Nothing here changes layout, covers a control or blocks a click or a key press.
+ *  - No decorative loops. The only loops are loading indicators (spinner, shimmer, waking dots) and the slow glow of the login logo.
+ */
+
+/* ── Shared entrances ─────────────────────────────────────────────────────── */
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(8px); }
+}
+@keyframes fade-in {
+  from { opacity: 0; }
+}
+@keyframes pop-in {
+  from { opacity: 0; transform: translateY(var(--pop-offset, -4px)); }
+}
+
+/* ── Dropdowns, pickers and the Preferences popover: fade and a 4px slide ──── */
+.popover { animation: pop-in var(--motion-micro) var(--ease) backwards; }
+.menu__list,
+.search-list { animation: pop-in var(--motion-micro) var(--ease) backwards; }
+.menu__list--top,
+.prefs__panel { --pop-offset: 4px; }
+
+/* ── Preferences popover and its switch ───────────────────────────────────── */
+.prefs { position: relative; }
+.prefs__trigger { width: 100%; justify-content: flex-start; }
+.prefs__panel {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 6px);
+  z-index: 55;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: 12px;
+  background: var(--color-elevated);
+  border: 1px solid #2c2c2c;
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+}
+.prefs__note { color: var(--color-muted); font-size: 12px; }
+
+.switch { display: flex; flex-direction: column; gap: 4px; }
+.switch__control { position: relative; display: flex; align-items: center; gap: 12px; cursor: pointer; }
+.switch__input { position: absolute; opacity: 0; width: 1px; height: 1px; margin: 0; }
+.switch__track {
+  position: relative;
+  flex: none;
+  width: 36px;
+  height: 20px;
+  border-radius: 999px;
+  background: #1c1c1c;
+  border: 1px solid #6a6a6a;
+  transition: background var(--motion-micro) var(--ease), border-color var(--motion-micro) var(--ease);
+}
+.switch__thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--color-text);
+  transition: transform var(--motion-micro) var(--ease);
+}
+.switch__input:checked + .switch__track { background: var(--btn-to); border-color: var(--color-primary); }
+.switch__input:checked + .switch__track .switch__thumb { transform: translateX(16px); }
+.switch__input:focus-visible + .switch__track { outline: 2px solid var(--color-text); outline-offset: 2px; }
+.switch__label { font-weight: 600; }
+.switch__hint { margin-left: 48px; color: var(--color-muted); font-size: 12px; }
+
+/* ── Reduced motion ───────────────────────────────────────────────────────── */
+/* Either the operating system asks for it or the Reduce animations switch is on: nothing moves, every change of state is instant. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}
+:root[data-motion='reduced'] *,
+:root[data-motion='reduced'] *::before,
+:root[data-motion='reduced'] *::after {
+  animation: none !important;
+  transition: none !important;
+  scroll-behavior: auto !important;
+}
