@@ -14,6 +14,7 @@
  *   noresults       every results archive is empty (the empty state)
  *   noattendance    no attendance post anywhere (the empty list)
  *   nomanager       creating an attendance post and posting an announcement answer 403 manager_required for every game
+ *                   (a title containing "fail" is refused with 502 discord_error: nothing is posted)
  *   nomanager-gt7   the same for ONE game only (any game key): the rule is per game, so the other four games still work
  *   nostaff         (existing) every call answers 403 forbidden
  *
@@ -30,6 +31,7 @@
 import type { NexusBridge } from '../../shared/bridge'
 import { isPastDate, isRacingGame, parseEventDate } from '../../shared/racingValidation'
 import type {
+  AnnouncementResult,
   IpcResult,
   RacingDriverProfile,
   RacingAttendancePage,
@@ -53,7 +55,7 @@ import { failure, notFound, refused, timeoutFailure } from './common'
 import type { F1MockContext } from './f1Mock'
 import { MEMBERS } from './f1Mock'
 
-type RacingMockApi = Pick<NexusBridge['api'], 'racingTeams' | 'racingTeam' | 'createRacingTeam' | 'addRosterMember' | 'removeRosterMember' | 'racingDriver' | 'racingEvents' | 'addRacingEvent' | 'racingResults' | 'logRacingResult' | 'racingAttendance' | 'racingAttendancePost' | 'createRacingAttendance'>
+type RacingMockApi = Pick<NexusBridge['api'], 'racingTeams' | 'racingTeam' | 'createRacingTeam' | 'addRosterMember' | 'removeRosterMember' | 'racingDriver' | 'racingEvents' | 'addRacingEvent' | 'racingResults' | 'logRacingResult' | 'racingAttendance' | 'racingAttendancePost' | 'createRacingAttendance' | 'postRacingAnnouncement'>
 
 const DAY_MS = 86_400_000
 const pad = (n: number, size = 3): string => String(n).padStart(size, '0')
@@ -421,6 +423,21 @@ export function createRacingMock(ctx: F1MockContext): { api: RacingMockApi } {
           state.posts.unshift(created)
           if (lostPost(`${input.name} ${input.description ?? ''}`, input.channelId)) return timeoutFailure() // posted and stored, but the answer "got lost"
           return { ok: true, data: { post: postView(created), channelId: input.channelId } }
+        })
+      ),
+
+    postRacingAnnouncement: (guildId, game, input) =>
+      ctx.api<AnnouncementResult>(() =>
+        managerGate(guildId, game, () => {
+          // The server is stricter than the command: only an https image.
+          if (input.imageUrl !== undefined && !/^https:\/\//i.test(input.imageUrl)) return failure('http', 'invalid_image_url', 'The image URL must be an https link.', 400)
+          const problem = channelProblem(input.channelId)
+          if (problem) return problem
+          if (/\bfail\b/i.test(input.title)) return failure('http', 'discord_error', 'Discord rejected the message.', 502) // Discord refused: nothing posted
+          const messageId = ctx.newMessageId()
+          ctx.liveMessages.add(messageId)
+          if (lostPost(input.title, input.channelId)) return timeoutFailure() // posted, but the answer "got lost"
+          return { ok: true, data: { messageId, channelId: input.channelId } }
         })
       ),
 

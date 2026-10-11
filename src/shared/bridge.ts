@@ -245,6 +245,8 @@ export interface NexusBridge {
     racingAttendancePost: (guildId: string, game: RacingGame, messageId: string) => Promise<IpcResult<RacingAttendancePost>>
     /** Needs Manage Server, Administrator or a Manager or Coach of one of THIS game's teams. A lost answer may already have posted the message: never repeat it with the same data. */
     createRacingAttendance: (guildId: string, game: RacingGame, input: RacingAttendanceInput) => Promise<IpcResult<RacingAttendanceResult>>
+    /** Needs Manage Server, Administrator or a Manager or Coach of one of THIS game's teams. Only an https image is accepted. A lost answer may already have posted the message: never repeat it with the same data. */
+    postRacingAnnouncement: (guildId: string, game: RacingGame, input: AnnouncementInput) => Promise<IpcResult<AnnouncementResult>>
     /** Appends an entry. Written once, never replayed: the same result twice is two entries. */
     logRacingResult: (guildId: string, game: RacingGame, input: RacingResultInput) => Promise<IpcResult<RacingResult>>
 

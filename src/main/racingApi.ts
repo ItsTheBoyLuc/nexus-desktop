@@ -1,6 +1,8 @@
 import { isMessageId } from '../shared/attendanceValidation'
 import { isRacingGame } from '../shared/racingValidation'
 import type {
+  AnnouncementInput,
+  AnnouncementResult,
   RacingAttendanceInput,
   RacingAttendancePage,
   RacingAttendancePost,
@@ -25,7 +27,7 @@ import type {
   RosterEntry,
   RosterRemoveResult
 } from '../shared/types'
-import { isValidHexColor, isValidSnowflake } from '../shared/validation'
+import { isValidHexColor, isValidImageUrl, isValidSnowflake } from '../shared/validation'
 import type { ApiClient } from './apiClient'
 import { clientError, invalid, isCount, isRecord, list } from './apiParse'
 
@@ -60,6 +62,8 @@ export interface RacingApi {
   racingAttendancePost: (guildId: string, game: RacingGame, messageId: string) => Promise<RacingAttendancePost>
   /** Posts the embed with its buttons in Discord. Never replayed: a lost answer may already have posted the message. */
   createRacingAttendance: (guildId: string, game: RacingGame, input: RacingAttendanceInput) => Promise<RacingAttendanceResult>
+  /** Posts an announcement embed of this game in a channel. Never replayed: a lost answer may already have posted the message. */
+  postRacingAnnouncement: (guildId: string, game: RacingGame, input: AnnouncementInput) => Promise<AnnouncementResult>
 }
 
 const str = (value: unknown, max: number): string => (typeof value === 'string' ? value.slice(0, max) : typeof value === 'number' && Number.isFinite(value) ? String(value).slice(0, max) : '')
@@ -322,6 +326,25 @@ export function createRacingApi(client: ApiClient): RacingApi {
       })
       if (!isRecord(json) || !isValidSnowflake(json['channel_id'])) throw invalid('attendance post')
       return { post: parseAttendancePost(json['post'], false), channelId: json['channel_id'] }
+    },
+
+    async postRacingAnnouncement(guildId, game, input) {
+      if (!isValidSnowflake(input.channelId)) throw clientError('invalid_channel', 'That channel is not valid.')
+      // The server only takes https (the command lets http through, the API does not): http is refused here, before any request.
+      if (input.imageUrl !== undefined && input.imageUrl !== '' && !isValidImageUrl(input.imageUrl)) throw clientError('invalid_image_url', 'Use a full https:// image link without spaces (at most 500 characters).')
+      // One attempt, never replayed: a lost answer may already have posted the message in Discord.
+      const json = await client.request({
+        method: 'POST',
+        path: racingPath(guildId, game, 'announcement'),
+        body: {
+          channel_id: input.channelId,
+          title: input.title,
+          message: input.message,
+          ...(input.imageUrl !== undefined && input.imageUrl !== '' ? { image_url: input.imageUrl } : {})
+        }
+      })
+      if (!isRecord(json) || json['ok'] !== true || !isValidSnowflake(json['message_id']) || !isValidSnowflake(json['channel_id'])) throw invalid('announcement')
+      return { messageId: json['message_id'], channelId: json['channel_id'] }
     }
   }
 }
