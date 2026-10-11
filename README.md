@@ -8,8 +8,8 @@ Scope so far: Discord login, server list, game picker with **Enable game**, and 
 **Overview**, **Games & Tiers** (tiers with live driver counts, sign-up panels), **Settings** (embed colour,
 footer, season; read-only up front for non-administrators) and **Announcement** (milestone 1), plus the
 Formula 1 league screens **Calendar**, **Teams** and **Standings** (milestone 2) and **Reports**, **Penalties**
-and **Dirty drivers** (milestone 3) and **Attendance** and **Sign-ups** (milestone 4), all described below. Only the
-Esports team pages show "Coming in the next phase".
+and **Dirty drivers** (milestone 3), **Attendance** and **Sign-ups** (milestone 4) and the **Esports team** of the
+five `/racing` games (milestone 5), all described below.
 Every call follows `docs/APP_API.md`, the contract copied from the backend repo.
 
 ### Formula 1 league (milestone 2)
@@ -122,12 +122,55 @@ or the server is switched, rendered as plain text, and the app has no export. `s
 the settings and token stores may write files, the renderer may not use browser storage, and nothing that handles
 participants may log. The mock's participants are obviously fake (*Fake Driver 007*, *Testland*, age 99).
 
+### Esports team (milestone 5)
+
+The sidebar group **Esports team** exists for each of the five games `lmu`, `iracing`, `gt7`, `acc` and `f1` (Formula 1
+Esports, which is **not** the League and never shares data with it). It works whether or not the game is enabled in
+Games & Tiers. Each game has its own teams, events, results and attendance: every call carries the selected `{game}`, an
+unknown game is refused (`unknown_game`) before any request, and a change of game or server rebuilds the screen from
+scratch (lists, forms, open posts and pending dialogs are gone).
+
+| Screen | What it does |
+| --- | --- |
+| Teams | Team list (search, filter, sort), create a team (name, colour, optional free-text class; the bot also creates a Discord role), a roster per team with add and remove (members picked by name, never by ID) and a driver profile. |
+| Events | Upcoming events (paged, search, sort), add an event with a date picker: the date is sent as `YYYY-MM-DD` only and shown back as "Interpreted as ...". |
+| Results | The **append-only archive** (oldest first, paged as the API pages it, "Load more"), **team stats** (the same list narrowed to one team, with the total the server reports), search and sort of the loaded rows, and **Log a result** (team, event name, result text, drivers involved, optional notes). |
+| Attendance | Posts of the game (newest first, paged, search, filter, sort), a post detail with the **Available** and **Not available** lists by name and a Refresh button, and **Create attendance post** (channel, name, date, optional description). The result dialog shows what the API returned and builds **Open in Discord** only from the channel and message ids in that answer. |
+| Announcement | The announcement of this game's team (not the server-level one): channel, title, message, optional **https** image, a review dialog and a success panel with the same kind of link. |
+
+Rules worth knowing:
+
+- **The results archive cannot be corrected.** There is no edit and no delete (no command does it), and logging the same
+  result twice creates two entries. The form says so, and a review step repeats it before anything is sent.
+- **Creating a post, an announcement or a result is sent once.** After a lost answer (timeout, dropped connection, 5xx) the
+  form locks, says the message or entry may already exist, and never offers the same data again: results and attendance
+  offer only **Refresh results** / **Refresh posts**; the announcement has nothing to refresh (the API cannot read
+  announcements back), so it says to look at the channel in Discord and offers only to discard the draft.
+- **Permissions are explained, not guessed.** Every read needs the staff check. Logging a result (like creating a team, a
+  roster change and an event) needs Manage Server or Administrator (`manage_server_required`); creating an attendance
+  post or an announcement needs Manage Server, Administrator, or being a Manager or Coach of a team **of this game**
+  (`manager_required`, remembered per server **and game**, so a refusal for iRacing does not disable GT7). The app cannot
+  know this in advance: on a 403 the action is disabled, the data stays readable and the rule is explained, with a
+  **Check again** button.
+- **Drivers set their own attendance in Discord.** The app cannot set, toggle or remove anyone's status, edit or delete a
+  post, or find a post's channel later; the screens say so.
+- **Announcement text is posted as typed**: formatting characters render in Discord, `:name:` server emoji are converted,
+  only an `https` image link is accepted (`http` is refused before any request) and the footer reads
+  "Posted via Nexus App by <your name>" followed by the footer text of the server.
+- **User text is plain text.** Team, driver, event, result and note text is never rendered as HTML.
+
+**Privacy of rosters, drivers and results.** They exist only in the renderer's memory: never written to the settings
+file, a log, a cache or browser storage, cleared when the screen is left or the server or game is switched.
+`src/main/privacy.test.ts` guards this for every esports screen, and `src/main/esportsScreens.test.ts` guards that each
+screen is keyed by server and game and sends the game with every call. The mock's names are obviously fake (*Fake Team
+Alpha*, *Fake Driver 007*).
+
 ## Scripts
 
 | Command | What it does |
 | --- | --- |
 | `npm run dev` | Electron + hot reload (electron-vite dev) |
-| `npm run dev:mock` | Renderer only, in a normal browser (the port is printed, usually http://localhost:5174) with a **fake, stateful** bridge (no Discord login). Query `?scenario=signedout\|denied\|expired\|empty\|error\|slow\|nogames\|notadmin\|norounds\|nobotperms\|nofia\|lostresults` shows other states: `nogames` = no game enabled, `notadmin` = staff but not Administrator (settings are read-only, admin-level roles return `role_too_privileged`), `norounds` = no calendar yet, `nobotperms` = the bot lacks permissions, `nofia` = no FIA role (`fia_required`), `lostresults` = every results request loses its answer, `noledger` = the server's results ledger cannot be read (the local fallback is used), and for milestone 3 `noreports`, `nopenaltyconfig` (penalty rules never set up: `penalty_not_configured`), `nostaff` (every report, penalty and dirty-driver call answers 403), `lostdecisions` (every decision is applied, then its answer is lost) and `nodirty`, and for milestone 4 `nodivisions`, `nosignups`, `noconfirmperms` (`bot_cannot_post_confirmations`), `nomanagechannels` (`bot_missing_manage_channels`), `ambiguousconfirm` (`confirmation_channel_ambiguous`) and `lostcreates` (creating a post or a sign-up is applied, then its answer is lost; `notadmin` makes the questions read-only). The headers of `src/renderer/mock/installMock.ts`, `f1Mock.ts` and `stewardMock.ts` and `attendanceMock.ts` list the sample data and the hooks (60 reports in Midnight GT, a report decided in Discord meanwhile, a report whose thread is gone, a description containing *points-fail* or *timeout*, a driver one point below a ban threshold, the channels `#bot-locked` and `#staff-only-hidden`, a circuit named *late-duplicate*, ...). |
+| `npm run dev:mock` | Renderer only, in a normal browser (the port is printed, usually http://localhost:5174) with a **fake, stateful** bridge (no Discord login). Query `?scenario=signedout\|denied\|expired\|empty\|error\|slow\|nogames\|notadmin\|norounds\|nobotperms\|nofia\|lostresults` shows other states: `nogames` = no game enabled, `notadmin` = staff but not Administrator (settings are read-only, admin-level roles return `role_too_privileged`), `norounds` = no calendar yet, `nobotperms` = the bot lacks permissions, `nofia` = no FIA role (`fia_required`), `lostresults` = every results request loses its answer, `noledger` = the server's results ledger cannot be read (the local fallback is used), and for milestone 3 `noreports`, `nopenaltyconfig` (penalty rules never set up: `penalty_not_configured`), `nostaff` (every report, penalty and dirty-driver call answers 403), `lostdecisions` (every decision is applied, then its answer is lost) and `nodirty`, and for milestone 4 `nodivisions`, `nosignups`, `noconfirmperms` (`bot_cannot_post_confirmations`), `nomanagechannels` (`bot_missing_manage_channels`), `ambiguousconfirm` (`confirmation_channel_ambiguous`) and `lostcreates` (creating a post or a sign-up is applied, then its answer is lost; `notadmin` makes the questions read-only), and for milestone 5 `noracingteams`, `nomanage` (`manage_server_required`: no team, roster, event or result can be written), `nomanageroles` (`bot_missing_manage_roles`), `noresults` (every archive is empty), `noattendance` (no post anywhere), `nomanager` (`manager_required` for every game's attendance post and announcement) or `nomanager-gt7` (the same for ONE game: the rule is per game; use any of `lmu`, `iracing`, `gt7`, `acc`, `f1`) and `lostracing` (creating a team, adding an event, logging a result, creating an attendance post and posting an announcement are applied, then the answer is lost). Besides the scenario, a team, event, result event, post name or announcement title containing *timeout*, or the channel `#timeout`, loses its answer, and an announcement title containing *fail* is refused with `discord_error` (nothing posted). The sample data of "Apex Racing League" has 52 to 120 results in every game, a post with 24 drivers (one who left the server), 120+ posts in iRacing and 30 upcoming iRacing events; the unknown-game answer (`unknown_game`) is only reachable in the tests, because the app refuses an unknown game before it asks. The headers of `src/renderer/mock/installMock.ts`, `f1Mock.ts`, `stewardMock.ts`, `attendanceMock.ts` and `racingMock.ts` list the sample data and the hooks (60 reports in Midnight GT, a report decided in Discord meanwhile, a report whose thread is gone, a description containing *points-fail* or *timeout*, a driver one point below a ban threshold, the channels `#bot-locked` and `#staff-only-hidden`, a circuit named *late-duplicate*, ...). |
 | `npm run typecheck` / `npm run lint` / `npm test` | tsc (strict), ESLint, Vitest |
 | `npm run build` | typecheck + bundle; fails if the mock flag is on or mock code is in `out/` |
 | `npm run dist` | `build` + Windows installer (NSIS) and portable `.exe` in `dist/` |
@@ -151,7 +194,8 @@ src/shared    Types, IPC channel names, CSP and the validation shared by both si
 /servers                       server list
 /g/:guild                      game picker (Enable game)
 /g/:guild/server/:page         overview, tiers (Games & Tiers), settings, announcement: a server is enough
-/g/:guild/:game/:page          League pages (Formula 1 only) and Esports team: the game must be enabled
+/g/:guild/:game/:page          League pages (Formula 1 only): the game must be enabled
+/g/:guild/:game/esports/:page  Esports team of lmu, iracing, gt7, acc, f1 (teams, events, results, attendance, announcement)
 ```
 
 ### What the app remembers (the settings file)
