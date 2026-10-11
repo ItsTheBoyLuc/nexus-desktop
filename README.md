@@ -165,6 +165,14 @@ file, a log, a cache or browser storage, cleared when the screen is left or the 
 screen is keyed by server and game and sends the game with every call. The mock's names are obviously fake (*Fake Team
 Alpha*, *Fake Driver 007*).
 
+## Motion
+
+A small motion layer, pure CSS plus a tiny React helper, no animation library. All of it is in `src/renderer/theme/motion.css`, with the durations (150 / 220 / 320 ms, 40 ms stagger) and the easing as tokens in `theme/tokens.ts`. Only transform, opacity and stroke-dashoffset move (hover colour and shadow transitions aside; the one exception is the open and close of the sidebar groups).
+
+- **Reduce animations**: the Preferences popover in the sidebar footer. It is stored as `reduceMotion` in the settings file, the only thing the motion layer stores. The operating system setting (prefers-reduced-motion) is always honoured too. Either one removes every animation and transition, so state changes are instant.
+- A success check mark is only drawn by success states and success toasts, never after an error or a lost answer.
+- `src/main/motionCss.test.ts` checks the rules on the stylesheets (what may move, tokens, reduced motion, no glow on destructive buttons).
+
 ## Scripts
 
 | Command | What it does |
