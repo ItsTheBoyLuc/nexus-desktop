@@ -1,10 +1,10 @@
-import { ArrowLeft, Plus, RotateCw, Trash2, User, UserPlus, Users } from 'lucide-react'
+import { ArrowLeft, Plus, RotateCw, Send, Trash2, User, UserPlus, Users } from 'lucide-react'
 import { useState } from 'react'
 import type { RacingTeam, RacingTeamDetail, RosterEntry } from '../../shared/types'
 import { Badge, Button, Card, EmptyState, ErrorState, LoadingRegion, Notice, PageHeader, Select, Skeleton, SortHeader, Stagger, TextField } from '../components'
 import { useRacingTeam, useRacingTeams } from '../hooks/data'
 import { useManageDenied } from '../hooks/useFiaDenied'
-import { describeError, errorCode } from '../lib/errors'
+import { describeError, errorCode, unwrap } from '../lib/errors'
 import { formatDay, plural } from '../lib/format'
 import { invalidateRacing } from '../lib/racingScope'
 import {
@@ -25,7 +25,9 @@ import { matchesQuery, nextSort, sortRows } from '../lib/tableView'
 import type { SortState } from '../lib/tableView'
 import { EsportsNote, useEsports } from './EsportsRoute'
 import type { EsportsContext } from './EsportsRoute'
+import { CardOutcomeDialog, PostToDiscordDialog } from './CardPostDialogs'
 import { RacingTeamDialog } from './RacingTeamDialog'
+import type { TeamCreated } from './RacingTeamDialog'
 import { AddMemberDialog, DriverProfileDialog, RemoveMemberDialog } from './RosterDialogs'
 
 export const NO_EDIT_TEXT = 'Teams cannot be edited or deleted: no command does it (and a team\'s Discord role is created once and never renamed), so the API has no endpoint for it. To change or remove a team, do it in Discord.'
@@ -98,12 +100,42 @@ function TeamList({ teams, onOpen }: { teams: RacingTeam[]; onOpen: (team: Racin
   )
 }
 
+// ── The card of a team (what "Post to Discord" shows and posts) ─────────────
+
+function TeamCardSummary({ team }: { team: Pick<RacingTeamDetail, 'name' | 'focus' | 'color' | 'memberCount' | 'roleName'> }) {
+  return (
+    <dl className="facts facts--grid">
+      <div>
+        <dt>Team</dt>
+        <dd className="plain-text">{team.name}</dd>
+      </div>
+      <div>
+        <dt>Class or category</dt>
+        <dd className="plain-text">{team.focus === '' ? 'Not set' : team.focus}</dd>
+      </div>
+      <div>
+        <dt>Colour</dt>
+        <dd>{team.color ?? 'No colour'}</dd>
+      </div>
+      <div>
+        <dt>Members</dt>
+        <dd>{team.memberCount}</dd>
+      </div>
+      <div className="facts__wide">
+        <dt>Discord role</dt>
+        <dd className="plain-text">{team.roleName ?? 'Deleted or not found'}</dd>
+      </div>
+    </dl>
+  )
+}
+
 // ── One team ────────────────────────────────────────────────────────────────
 
 function TeamDetail({ ctx, name, onBack }: { ctx: EsportsContext; name: string; onBack: () => void }) {
   const team = useRacingTeam(ctx.guild.id, ctx.game, name)
   const manage = useManageDenied(ctx.guild.id)
   const [adding, setAdding] = useState(false)
+  const [posting, setPosting] = useState(false)
   const [removing, setRemoving] = useState<RosterEntry | null>(null)
   const [profileOf, setProfileOf] = useState<RosterEntry | null>(null)
   const [query, setQuery] = useState('')
@@ -155,9 +187,14 @@ function TeamDetail({ ctx, name, onBack }: { ctx: EsportsContext; name: string; 
                 {!data.roleExists ? ' (members cannot be added while it is gone)' : ''}
               </p>
             </div>
-            <Button icon={<UserPlus size={16} aria-hidden="true" />} disabled={manage.denied} title={manage.denied ? 'Needs the Manage Server permission' : undefined} onClick={() => setAdding(true)}>
-              Add a member
-            </Button>
+            <div className="header-actions">
+              <Button variant="secondary" icon={<Send size={16} aria-hidden="true" />} disabled={manage.denied} title={manage.denied ? 'Needs the Manage Server permission' : 'Post the card of this team in a Discord channel'} onClick={() => setPosting(true)}>
+                Post to Discord
+              </Button>
+              <Button icon={<UserPlus size={16} aria-hidden="true" />} disabled={manage.denied} title={manage.denied ? 'Needs the Manage Server permission' : undefined} onClick={() => setAdding(true)}>
+                Add a member
+              </Button>
+            </div>
           </Card>
 
           {manage.denied ? (
@@ -234,6 +271,16 @@ function TeamDetail({ ctx, name, onBack }: { ctx: EsportsContext; name: string; 
         </>
       ) : null}
 
+      {posting && data ? (
+        <PostToDiscordDialog
+          ctx={ctx}
+          title={`Post the card of ${data.name}`}
+          subject={`the card of ${data.name}`}
+          summary={<TeamCardSummary team={data} />}
+          send={(card) => unwrap(window.nexus.api.postRacingTeam(ctx.guild.id, ctx.game, { team: data.name, ...card }))}
+          onClose={() => setPosting(false)}
+        />
+      ) : null}
       {adding && data ? <AddMemberDialog guildId={ctx.guild.id} game={ctx.game} gameLabel={ctx.gameLabel} team={data} onClose={() => setAdding(false)} onAdded={() => setAdding(false)} /> : null}
       {removing && data ? <RemoveMemberDialog guildId={ctx.guild.id} game={ctx.game} gameLabel={ctx.gameLabel} team={data} entry={removing} onClose={() => setRemoving(null)} onRemoved={() => setRemoving(null)} /> : null}
       {profileOf ? <DriverProfileDialog guildId={ctx.guild.id} game={ctx.game} gameLabel={ctx.gameLabel} userId={profileOf.userId} fallbackName={rosterName(profileOf)} onClose={() => setProfileOf(null)} /> : null}
@@ -248,6 +295,7 @@ function TeamsScreen({ ctx }: { ctx: EsportsContext }) {
   const manage = useManageDenied(ctx.guild.id)
   const [creating, setCreating] = useState(false)
   const [selected, setSelected] = useState<string | null>(null)
+  const [followUp, setFollowUp] = useState<TeamCreated | null>(null)
 
   const list = teams.status === 'ready' ? teams.data : []
   const current = selected === null ? null : (list.find((team) => team.name.toLowerCase() === selected.toLowerCase()) ?? null)
@@ -316,14 +364,25 @@ function TeamsScreen({ ctx }: { ctx: EsportsContext }) {
 
       {creating ? (
         <RacingTeamDialog
-          guildId={ctx.guild.id}
-          game={ctx.game}
-          gameLabel={ctx.gameLabel}
+          ctx={ctx}
           onClose={() => setCreating(false)}
-          onCreated={(team) => {
+          onCreated={(created) => {
             setCreating(false)
-            setSelected(team.name)
+            setSelected(created.team.name)
+            if (created.card !== null && created.requested !== null) setFollowUp(created)
           }}
+        />
+      ) : null}
+      {followUp && followUp.card && followUp.requested ? (
+        <CardOutcomeDialog
+          ctx={ctx}
+          kind="team"
+          itemName={followUp.team.name}
+          card={followUp.card}
+          requested={followUp.requested}
+          summary={<TeamCardSummary team={followUp.team} />}
+          send={(card) => unwrap(window.nexus.api.postRacingTeam(ctx.guild.id, ctx.game, { team: followUp.team.name, ...card }))}
+          onClose={() => setFollowUp(null)}
         />
       ) : null}
     </div>
