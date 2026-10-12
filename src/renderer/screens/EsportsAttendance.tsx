@@ -1,24 +1,25 @@
-import { ArrowLeft, CalendarCheck, ExternalLink as ExternalIcon, Plus, RotateCw } from 'lucide-react'
+import { ArrowLeft, CalendarCheck, Plus, RotateCw } from 'lucide-react'
 import { useCallback, useState } from 'react'
 import { RACING_LIMITS, validateRacingAttendanceDraft } from '../../shared/racingValidation'
 import type { RacingAttendanceField } from '../../shared/racingValidation'
-import type { RacingAttendanceResult, RacingAttendeeRow } from '../../shared/types'
-import { Badge, Button, Card, CopyButton, EmptyState, ErrorState, LoadingRegion, Modal, Notice, PageHeader, SearchSelect, Select, Skeleton, SortHeader, Stagger, TextField, useToast } from '../components'
-import { useGuildChannels, useRacingAttendancePost } from '../hooks/data'
+import type { RacingAttendanceInput, RacingAttendanceResult, RacingAttendeeRow } from '../../shared/types'
+import { Badge, Button, Card, EmptyState, ErrorState, LoadingRegion, Modal, Notice, PageHeader, PingRolesField, PostConfirmDialog, PostResultDialog, SearchSelect, Select, Skeleton, SortHeader, Stagger, TextField, useToast } from '../components'
+import { useGuildChannels, usePingRoles, useRacingAttendancePost, useRacingTeamRoles } from '../hooks/data'
 import { usePagedList } from '../hooks/paged'
+import { useSettings } from '../hooks/settings'
 import { useManagerDenied } from '../hooks/useFiaDenied'
 import { useWriteAction } from '../hooks/useWriteAction'
 import { describeChannelError, describeError, errorCode, fieldErrorFor, unwrap } from '../lib/errors'
 import { plural } from '../lib/format'
+import { resolvePingRoles } from '../lib/pingRoles'
 import { invalidateRacing, racingKey } from '../lib/racingScope'
 import {
   ATTENDANCE_DRIVERS_TOGGLE_TEXT,
   ATTENDANCE_FILTER_OPTIONS,
   ATTENDANCE_GETTERS,
-  ATTENDANCE_LOST_TEXT,
   ATTENDANCE_POSTED_AS_TYPED,
+  attendanceLostText,
   describeRacingError,
-  discordMessageLink,
   matchesAttendanceFilter,
   MANAGER_RULE
 } from '../lib/racingView'
@@ -230,24 +231,49 @@ function PostDetail({ ctx, messageId, onBack }: { ctx: EsportsContext; messageId
 
 const SERVER_FIELDS = { invalid_name: 'name', invalid_date: 'date', invalid_description: 'description' } as const satisfies Record<string, RacingAttendanceField>
 
-function CreatePostDialog({ ctx, onClose, onCreated }: { ctx: EsportsContext; onClose: () => void; onCreated: (result: RacingAttendanceResult) => void }) {
+/** What the screen needs to show the result: the answer, and the role ids that were asked for (to notice when the answer disagrees). */
+interface CreatedPost {
+  result: RacingAttendanceResult
+  requested: string[]
+}
+
+type CreatePhase = 'editing' | 'confirming'
+
+function CreatePostDialog({ ctx, onClose, onCreated }: { ctx: EsportsContext; onClose: () => void; onCreated: (created: CreatedPost) => void }) {
   const channels = useGuildChannels(ctx.guild.id)
+  const roles = usePingRoles(ctx.guild.id)
+  const teamRoles = useRacingTeamRoles(ctx.guild.id, ctx.game)
+  const { postChannelOf, rememberPostChannel } = useSettings()
   const toast = useToast()
   const write = useWriteAction()
   const manager = useManagerDenied(ctx.guild.id, ctx.game)
   const [draft, setDraft] = useState({ channelId: '', name: '', date: '', description: '' })
+  const [pingIds, setPingIds] = useState<string[]>([])
+  const [pingError, setPingError] = useState<string | null>(null)
+  const [phase, setPhase] = useState<CreatePhase>('editing')
   const [submitted, setSubmitted] = useState(false)
   const [serverErrors, setServerErrors] = useState<Partial<Record<RacingAttendanceField, string>>>({})
   const [problem, setProblem] = useState<string | null>(null)
   const [lost, setLost] = useState(false)
 
-  const result = validateRacingAttendanceDraft(draft)
+  const channelList = channels.status === 'ready' ? channels.data : []
+  // The channel last used for this game on this server, when it still exists. It is only a starting point: the user can pick another.
+  const remembered = postChannelOf(ctx.guild.id, ctx.game)
+  const channelId = draft.channelId !== '' ? draft.channelId : remembered !== null && channelList.some((channel) => channel.id === remembered) ? remembered : ''
+
+  const result = validateRacingAttendanceDraft({ ...draft, channelId })
   const errors: Partial<Record<RacingAttendanceField, string>> = result.ok ? {} : result.errors
   const show = (field: RacingAttendanceField): string | null => serverErrors[field] ?? (submitted ? (errors[field] ?? null) : null)
-  const channelName = (id: string): string => (channels.status === 'ready' ? (channels.data.find((channel) => channel.id === id)?.name ?? '') : '')
+  const channelName = (id: string): string => channelList.find((channel) => channel.id === id)?.name ?? ''
   const change = (field: RacingAttendanceField, value: string): void => {
     setDraft((current) => ({ ...current, [field]: value }))
     setServerErrors({})
+    setProblem(null)
+    if (field === 'channelId' && value !== '') rememberPostChannel(ctx.guild.id, ctx.game, value) // the channel id and nothing else
+  }
+  const changePings = (ids: string[]): void => {
+    setPingIds(ids)
+    setPingError(null)
     setProblem(null)
   }
 
@@ -256,21 +282,27 @@ function CreatePostDialog({ ctx, onClose, onCreated }: { ctx: EsportsContext; on
     onClose()
   }
 
-  const submit = async (): Promise<void> => {
+  const review = (): void => {
     setSubmitted(true)
+    if (result.ok && !lost && !manager.denied) setPhase('confirming')
+  }
+
+  const submit = async (): Promise<void> => {
     if (!result.ok || lost || manager.denied) return
-    const outcome = await write.run(() => unwrap(window.nexus.api.createRacingAttendance(ctx.guild.id, ctx.game, result.value)))
+    const input: RacingAttendanceInput = { ...result.value, ...(pingIds.length > 0 ? { pingRoleIds: pingIds } : {}) }
+    const outcome = await write.run(() => unwrap(window.nexus.api.createRacingAttendance(ctx.guild.id, ctx.game, input)))
     if (!outcome) return
     if (outcome.ok) {
       invalidateRacing(ctx.guild.id, ctx.game)
       toast.push({ tone: 'success', title: 'Attendance post created', message: `${outcome.value.post.name}, ${outcome.value.post.date}` })
-      onCreated(outcome.value)
+      onCreated({ result: outcome.value, requested: pingIds })
       return
     }
     const error = outcome.error
     const verdict = judgeWrite(error, 'attendance')
+    setPhase('editing')
     if (verdict.type === 'lost') {
-      // The message may be in Discord already: lock the form, read the list again, never offer the same data for sending.
+      // The message may be in Discord already (and may already have pinged people): lock the form, read the list again, never offer the same data for sending.
       invalidateRacing(ctx.guild.id, ctx.game)
       setLost(true)
       return
@@ -280,7 +312,13 @@ function CreatePostDialog({ ctx, onClose, onCreated }: { ctx: EsportsContext; on
       return
     }
     if (verdict.type === 'channel') {
-      setServerErrors({ channelId: describeChannelError(error, channelName(draft.channelId), 'Nothing was posted.') })
+      setServerErrors({ channelId: describeChannelError(error, channelName(channelId), 'Nothing was posted.') })
+      return
+    }
+    if (verdict.type === 'ping') {
+      // Nothing was posted. The roles stay so they can be fixed, and the list is read again: a role may have changed in Discord.
+      setPingError(describeRacingError(error, ctx.gameLabel))
+      roles.reload()
       return
     }
     const field = fieldErrorFor(error, SERVER_FIELDS)
@@ -289,137 +327,141 @@ function CreatePostDialog({ ctx, onClose, onCreated }: { ctx: EsportsContext; on
   }
 
   return (
-    <Modal
-      open
-      title={`Create a ${ctx.gameLabel} attendance post`}
-      size="lg"
-      dismissible={!write.busy}
-      onClose={onClose}
-      footer={
-        lost ? (
-          <>
-            <Button variant="secondary" onClick={onClose}>
-              Close
-            </Button>
-            <Button icon={<RotateCw size={14} aria-hidden="true" />} onClick={refresh}>
-              Refresh posts
-            </Button>
-          </>
+    <>
+      <Modal
+        open={phase === 'editing'}
+        title={`Create a ${ctx.gameLabel} attendance post`}
+        size="lg"
+        dismissible={!write.busy}
+        onClose={onClose}
+        footer={
+          lost ? (
+            <>
+              <Button variant="secondary" onClick={onClose}>
+                Close
+              </Button>
+              <Button icon={<RotateCw size={14} aria-hidden="true" />} onClick={refresh}>
+                Refresh posts
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button variant="secondary" disabled={write.busy} onClick={onClose}>
+                Cancel
+              </Button>
+              <Button disabled={manager.denied} onClick={review}>
+                Review and post
+              </Button>
+            </>
+          )
+        }
+      >
+        {lost ? (
+          <Notice tone="danger">
+            <strong>The post may already be in Discord.</strong> {attendanceLostText(pingIds.length > 0)}
+          </Notice>
         ) : (
           <>
-            <Button variant="secondary" disabled={write.busy} onClick={onClose}>
-              Cancel
-            </Button>
-            <Button loading={write.busy} disabled={manager.denied} onClick={() => void submit()}>
-              Post to Discord
-            </Button>
+            <p className="muted">Like <code>/racing {ctx.game} attendance</code>: posts the attendance embed with the Available and Not Available buttons. The buttons keep working after a bot restart.</p>
+            <Notice tone="info">{ATTENDANCE_POSTED_AS_TYPED}</Notice>
+            {manager.denied ? (
+              <Notice tone="danger" action={<Button variant="secondary" size="sm" onClick={manager.reset}>Check again</Button>}>
+                {MANAGER_RULE} The server refused your account for {ctx.gameLabel}, so this action is off. If your role changed, choose Check again.
+              </Notice>
+            ) : null}
+            <div className="field-pair">
+              <TextField label="Name of the post" value={draft.name} maxLength={RACING_LIMITS.attendanceNameMax} placeholder="Tuesday Practice" error={show('name')} autoComplete="off" onChange={(event) => change('name', event.target.value)} />
+              <TextField label="Date" value={draft.date} maxLength={RACING_LIMITS.attendanceDateMax} placeholder="2026-09-14" hint="Free text, up to 20 characters, shown as typed." error={show('date')} autoComplete="off" onChange={(event) => change('date', event.target.value)} />
+            </div>
+            <SearchSelect
+              label="Channel"
+              value={channelId}
+              options={channelList.map((channel) => ({ value: channel.id, label: `# ${channel.name}` }))}
+              placeholder="Search channels"
+              disabled={channels.status !== 'ready'}
+              hint={channels.status === 'error' ? 'The channels could not be loaded.' : 'Only channels where Nexus can post and you can see are listed.'}
+              error={show('channelId')}
+              emptyText="No channel found. Nexus can only post where it has permission."
+              onChange={(value) => change('channelId', value)}
+            />
+            <TextField multiline label="Description" optional rows={3} value={draft.description} maxLength={RACING_LIMITS.attendanceDescriptionMax} error={show('description')} onChange={(event) => change('description', event.target.value)} />
+            <PingRolesField guildId={ctx.guild.id} gameLabel={ctx.gameLabel} roles={roles} teamRoles={teamRoles} ids={pingIds} onChange={changePings} error={pingError} />
+            {problem ? <Notice tone="danger">{problem}</Notice> : null}
           </>
-        )
-      }
-    >
-      {lost ? (
-        <Notice tone="danger">
-          <strong>The post may already be in Discord.</strong> {ATTENDANCE_LOST_TEXT}
-        </Notice>
-      ) : (
-        <>
-          <p className="muted">Like <code>/racing {ctx.game} attendance</code>: posts the attendance embed with the Available and Not Available buttons. The buttons keep working after a bot restart.</p>
-          <Notice tone="info">{ATTENDANCE_POSTED_AS_TYPED}</Notice>
-          {manager.denied ? (
-            <Notice tone="danger" action={<Button variant="secondary" size="sm" onClick={manager.reset}>Check again</Button>}>
-              {MANAGER_RULE} The server refused your account for {ctx.gameLabel}, so this action is off. If your role changed, choose Check again.
-            </Notice>
-          ) : null}
-          <div className="field-pair">
-            <TextField label="Name of the post" value={draft.name} maxLength={RACING_LIMITS.attendanceNameMax} placeholder="Tuesday Practice" error={show('name')} autoComplete="off" onChange={(event) => change('name', event.target.value)} />
-            <TextField label="Date" value={draft.date} maxLength={RACING_LIMITS.attendanceDateMax} placeholder="2026-09-14" hint="Free text, up to 20 characters, shown as typed." error={show('date')} autoComplete="off" onChange={(event) => change('date', event.target.value)} />
-          </div>
-          <SearchSelect
-            label="Channel"
-            value={draft.channelId}
-            options={channels.status === 'ready' ? channels.data.map((channel) => ({ value: channel.id, label: `# ${channel.name}` })) : []}
-            placeholder="Search channels"
-            disabled={channels.status !== 'ready'}
-            hint={channels.status === 'error' ? 'The channels could not be loaded.' : 'Only channels where Nexus can post and you can see are listed.'}
-            error={show('channelId')}
-            emptyText="No channel found. Nexus can only post where it has permission."
-            onChange={(value) => change('channelId', value)}
-          />
-          <TextField multiline label="Description" optional rows={3} value={draft.description} maxLength={RACING_LIMITS.attendanceDescriptionMax} error={show('description')} onChange={(event) => change('description', event.target.value)} />
-          {problem ? <Notice tone="danger">{problem}</Notice> : null}
-        </>
-      )}
-    </Modal>
+        )}
+      </Modal>
+      <PostConfirmDialog
+        open={phase === 'confirming'}
+        title={`Post this ${ctx.gameLabel} attendance post?`}
+        channelLabel={`#${channelName(channelId) || 'the channel you chose'}`}
+        guildName={ctx.guild.name}
+        roles={resolvePingRoles(pingIds, roles.status === 'ready' ? roles.data : [])}
+        confirmLabel="Post to Discord"
+        busy={write.busy}
+        onConfirm={() => void submit()}
+        onCancel={() => setPhase('editing')}
+      >
+        <div className="preview">
+          <div className="preview__title plain-text">{draft.name.trim()}</div>
+          <div className="preview__message plain-text">{draft.date.trim()}</div>
+          {draft.description.trim() ? <div className="preview__message plain-text">{draft.description.trim()}</div> : null}
+        </div>
+        <p className="muted">It is posted with the Available and Not Available buttons. The name, date and description go to Discord exactly as typed.</p>
+      </PostConfirmDialog>
+    </>
   )
 }
 
 /** What the API returned for the new post. Nothing is stored by the app: the link is built from the ids in the answer and kept in memory only. */
-function PostCreatedDialog({ ctx, result, onClose, onView }: { ctx: EsportsContext; result: RacingAttendanceResult; onClose: () => void; onView: (messageId: string) => void }) {
+function PostCreatedDialog({ ctx, created, onClose, onView }: { ctx: EsportsContext; created: CreatedPost; onClose: () => void; onView: (messageId: string) => void }) {
   const channels = useGuildChannels(ctx.guild.id)
-  const toast = useToast()
+  const { result, requested } = created
   const channelName = channels.status === 'ready' ? channels.data.find((channel) => channel.id === result.channelId)?.name : undefined
-  const link = discordMessageLink(ctx.guild.id, result.channelId, result.post.messageId)
-  const open = async (): Promise<void> => {
-    const opened = await window.nexus.system.openExternal(link).catch(() => false)
-    if (!opened) toast.push({ tone: 'danger', title: 'Link not opened', message: 'The link could not be opened. Copy it and open it in your browser.' })
-  }
   return (
-    <Modal
-      open
+    <PostResultDialog
       title="Attendance post created"
-      onClose={onClose}
-      footer={
+      intro={
         <>
-          <Button variant="secondary" onClick={() => onView(result.post.messageId)}>
-            View the post
-          </Button>
-          <Button data-autofocus onClick={onClose}>
-            Close
-          </Button>
+          The post <strong className="plain-text">{result.post.name}</strong> is in Discord, with the Available and Not Available buttons.
         </>
       }
-    >
-      <p>
-        The post <strong className="plain-text">{result.post.name}</strong> is in Discord, with the Available and Not Available buttons.
-      </p>
-      <dl className="facts facts--grid">
-        <div>
-          <dt>Name</dt>
-          <dd className="plain-text">{result.post.name}</dd>
-        </div>
-        <div>
-          <dt>Date</dt>
-          <dd className="plain-text">{result.post.date}</dd>
-        </div>
-        {result.post.description ? (
-          <div className="facts__wide">
-            <dt>Description</dt>
-            <dd className="plain-text">{result.post.description}</dd>
+      guildId={ctx.guild.id}
+      channelId={result.channelId}
+      channelName={channelName}
+      messageId={result.post.messageId}
+      pingedRoles={result.pingedRoles}
+      requestedRoleIds={requested}
+      facts={
+        <>
+          <div>
+            <dt>Name</dt>
+            <dd className="plain-text">{result.post.name}</dd>
           </div>
-        ) : null}
-        <div>
-          <dt>Channel</dt>
-          <dd>{channelName ? `# ${channelName}` : 'The channel you chose'}</dd>
-        </div>
-        <div>
-          <dt>Message ID</dt>
-          <dd className="plain-text">{result.post.messageId}</dd>
-        </div>
-        <div>
-          <dt>Answers so far</dt>
-          <dd>
-            {result.post.counts.available} available, {result.post.counts.unavailable} not available
-          </dd>
-        </div>
-      </dl>
-      <div className="dialog-actions dialog-actions--start">
-        <Button variant="secondary" size="sm" icon={<ExternalIcon size={14} aria-hidden="true" />} onClick={() => void open()}>
-          Open in Discord
+          <div>
+            <dt>Date</dt>
+            <dd className="plain-text">{result.post.date}</dd>
+          </div>
+          {result.post.description ? (
+            <div className="facts__wide">
+              <dt>Description</dt>
+              <dd className="plain-text">{result.post.description}</dd>
+            </div>
+          ) : null}
+          <div>
+            <dt>Answers so far</dt>
+            <dd>
+              {result.post.counts.available} available, {result.post.counts.unavailable} not available
+            </dd>
+          </div>
+        </>
+      }
+      actions={
+        <Button variant="secondary" onClick={() => onView(result.post.messageId)}>
+          View the post
         </Button>
-        <CopyButton text={result.post.messageId} label="Copy the message ID" what="The message ID" />
-      </div>
-      <p className="muted">The link is built from the channel and message the server just returned. The server does not store a post&apos;s channel, so later the post is only found in the list, not by link.</p>
-    </Modal>
+      }
+      onClose={onClose}
+    />
   )
 }
 
@@ -429,7 +471,7 @@ function AttendanceScreen({ ctx }: { ctx: EsportsContext }) {
   const manager = useManagerDenied(ctx.guild.id, ctx.game)
   const [openId, setOpenId] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
-  const [created, setCreated] = useState<RacingAttendanceResult | null>(null)
+  const [created, setCreated] = useState<CreatedPost | null>(null)
 
   return (
     <div className="page">
@@ -463,16 +505,16 @@ function AttendanceScreen({ ctx }: { ctx: EsportsContext }) {
         <CreatePostDialog
           ctx={ctx}
           onClose={() => setCreating(false)}
-          onCreated={(result) => {
+          onCreated={(post) => {
             setCreating(false)
-            setCreated(result)
+            setCreated(post)
           }}
         />
       ) : null}
       {created ? (
         <PostCreatedDialog
           ctx={ctx}
-          result={created}
+          created={created}
           onClose={() => setCreated(null)}
           onView={(messageId) => {
             setCreated(null)
