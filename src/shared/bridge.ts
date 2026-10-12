@@ -4,7 +4,10 @@ import type {
   AdvanceRaceInput,
   AdvanceRaceResult,
   RacingDriverProfile,
+  RacingAnnouncementInput,
+  RacingAnnouncementResult,
   RacingAttendanceInput,
+  RacingTeamRole,
   RacingAttendancePage,
   RacingAttendancePost,
   RacingAttendanceResult,
@@ -243,10 +246,15 @@ export interface NexusBridge {
     racingAttendance: (guildId: string, game: RacingGame, page?: { limit?: number; offset?: number }) => Promise<IpcResult<RacingAttendancePage>>
     /** The names of the drivers are personal data: keep them in memory only. */
     racingAttendancePost: (guildId: string, game: RacingGame, messageId: string) => Promise<IpcResult<RacingAttendancePost>>
-    /** Needs Manage Server, Administrator or a Manager or Coach of one of THIS game's teams. A lost answer may already have posted the message: never repeat it with the same data. */
+    /** The Discord role of every team of this game: the quick pick for the roles to ping (M6). Teams whose role was deleted are left out. */
+    racingTeamRoles: (guildId: string, game: RacingGame) => Promise<IpcResult<RacingTeamRole[]>>
+    /**
+     * Needs Manage Server, Administrator or a Manager or Coach of one of THIS game's teams. `pingRoleIds` (at most 3) pings those roles when the
+     * message is posted. A lost answer may already have posted the message AND pinged people: never repeat it with the same data.
+     */
     createRacingAttendance: (guildId: string, game: RacingGame, input: RacingAttendanceInput) => Promise<IpcResult<RacingAttendanceResult>>
     /** Needs Manage Server, Administrator or a Manager or Coach of one of THIS game's teams. Only an https image is accepted. A lost answer may already have posted the message: never repeat it with the same data. */
-    postRacingAnnouncement: (guildId: string, game: RacingGame, input: AnnouncementInput) => Promise<IpcResult<AnnouncementResult>>
+    postRacingAnnouncement: (guildId: string, game: RacingGame, input: RacingAnnouncementInput) => Promise<IpcResult<RacingAnnouncementResult>>
     /** Appends an entry. Written once, never replayed: the same result twice is two entries. */
     logRacingResult: (guildId: string, game: RacingGame, input: RacingResultInput) => Promise<IpcResult<RacingResult>>
 
@@ -259,6 +267,8 @@ export interface NexusBridge {
   settings: {
     get: () => Promise<Settings>
     set: (patch: SettingsPatch) => Promise<Settings>
+    /** Remembers the channel last chosen for the esports posts of one game on one server. A channel id only; anything else is refused. */
+    rememberPostChannel: (guildId: string, game: RacingGame, channelId: string) => Promise<Settings>
   }
 
   system: {

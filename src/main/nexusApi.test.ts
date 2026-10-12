@@ -33,11 +33,11 @@ const tierJson = (over: Record<string, unknown> = {}) => ({
 const gameJson = (over: Record<string, unknown> = {}) => ({ label: 'Formula 1', category: 'Open Wheel', active: true, tiers: { T1: tierJson() }, ...over })
 
 describe('roles', () => {
-  it('GET /roles, keeps the picker flags, drops malformed rows', async () => {
+  it('GET /roles, keeps the picker flags and the M6 member counts, drops malformed rows', async () => {
     const { api, calls } = setup({
       roles: [
-        { id: ROLE, name: 'Tier 1', color: '#ff8800', position: 5, managed: false, assignable: true, privileged: false },
-        { id: ROLE, name: 'Bot', color: null, position: 3, managed: true, assignable: false, privileged: false },
+        { id: ROLE, name: 'Tier 1', color: '#ff8800', position: 5, managed: false, assignable: true, privileged: false, mentionable: true, member_count: 12, member_count_approximate: false },
+        { id: ROLE, name: 'Bot', color: null, position: 3, managed: true, assignable: false, privileged: false, mentionable: false, member_count: 1, member_count_approximate: true },
         { id: 'abc', name: 'bad id' },
         { name: 'no id' }
       ]
@@ -46,9 +46,25 @@ describe('roles', () => {
     expect(calls[0]).toMatchObject({ path: `${BASE}/roles` })
     expect(calls[0]?.method).toBeUndefined() // GET
     expect(roles).toEqual([
-      { id: ROLE, name: 'Tier 1', color: '#FF8800', position: 5, managed: false, assignable: true, privileged: false },
-      { id: ROLE, name: 'Bot', color: null, position: 3, managed: true, assignable: false, privileged: false }
+      { id: ROLE, name: 'Tier 1', color: '#FF8800', position: 5, managed: false, assignable: true, privileged: false, mentionable: true, memberCount: 12, memberCountApproximate: false },
+      { id: ROLE, name: 'Bot', color: null, position: 3, managed: true, assignable: false, privileged: false, mentionable: false, memberCount: 1, memberCountApproximate: true }
     ])
+  })
+
+  it('a role without the M6 fields is not mentionable, and its count is unknown (never 0)', async () => {
+    const { api } = setup({ roles: [{ id: ROLE, name: 'Old', color: null, position: 1, managed: false, assignable: true, privileged: false }] })
+    expect(await api.roles(G)).toEqual([{ id: ROLE, name: 'Old', color: null, position: 1, managed: false, assignable: true, privileged: false, mentionable: false, memberCount: null, memberCountApproximate: true }])
+  })
+
+  it.each([[-1], [1.5], ['12'], [null], [1e12]])('a member count of %j is unknown, not a number', async (count) => {
+    const { api } = setup({ roles: [{ id: ROLE, name: 'Odd', color: null, position: 1, managed: false, assignable: true, privileged: false, mentionable: true, member_count: count, member_count_approximate: false }] })
+    const [role] = await api.roles(G)
+    expect(role).toMatchObject({ memberCount: null, memberCountApproximate: true })
+  })
+
+  it('only a real true counts as mentionable', async () => {
+    const { api } = setup({ roles: [{ id: ROLE, name: 'Odd', color: null, position: 1, managed: false, assignable: true, privileged: false, mentionable: 'true', member_count: 3 }] })
+    expect((await api.roles(G))[0]?.mentionable).toBe(false)
   })
 })
 

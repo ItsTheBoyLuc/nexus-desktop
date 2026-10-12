@@ -1,8 +1,10 @@
 import { isMessageId } from '../shared/attendanceValidation'
+import { parsePingRoleIds } from '../shared/pingRoles'
 import { isRacingGame } from '../shared/racingValidation'
 import type {
-  AnnouncementInput,
-  AnnouncementResult,
+  PingedRole,
+  RacingAnnouncementInput,
+  RacingAnnouncementResult,
   RacingAttendanceInput,
   RacingAttendancePage,
   RacingAttendancePost,
@@ -22,6 +24,7 @@ import type {
   RacingTeam,
   RacingTeamDetail,
   RacingTeamInput,
+  RacingTeamRole,
   RosterAddInput,
   RosterAddResult,
   RosterEntry,
@@ -60,10 +63,15 @@ export interface RacingApi {
   racingAttendance: (guildId: string, game: RacingGame, page?: { limit?: number; offset?: number }) => Promise<RacingAttendancePage>
   /** One post with the names of the drivers who pressed Available and Not Available (read-only: drivers set their own status in Discord). */
   racingAttendancePost: (guildId: string, game: RacingGame, messageId: string) => Promise<RacingAttendancePost>
-  /** Posts the embed with its buttons in Discord. Never replayed: a lost answer may already have posted the message. */
+  /** The Discord role of every team of this game (M6): the quick pick for the roles to ping. A team whose role was deleted is not listed. */
+  racingTeamRoles: (guildId: string, game: RacingGame) => Promise<RacingTeamRole[]>
+  /**
+   * Posts the embed with its buttons in Discord, optionally pinging up to 3 roles (M6). Never replayed: a lost answer may already have
+   * posted the message and pinged people.
+   */
   createRacingAttendance: (guildId: string, game: RacingGame, input: RacingAttendanceInput) => Promise<RacingAttendanceResult>
-  /** Posts an announcement embed of this game in a channel. Never replayed: a lost answer may already have posted the message. */
-  postRacingAnnouncement: (guildId: string, game: RacingGame, input: AnnouncementInput) => Promise<AnnouncementResult>
+  /** Posts an announcement embed of this game in a channel, optionally pinging up to 3 roles (M6). Never replayed: a lost answer may already have posted the message and pinged people. */
+  postRacingAnnouncement: (guildId: string, game: RacingGame, input: RacingAnnouncementInput) => Promise<RacingAnnouncementResult>
 }
 
 const str = (value: unknown, max: number): string => (typeof value === 'string' ? value.slice(0, max) : typeof value === 'number' && Number.isFinite(value) ? String(value).slice(0, max) : '')
@@ -177,6 +185,20 @@ function parseAttendancePost(json: unknown, requireLists: boolean): RacingAttend
   return { ...summary, counts, attendance }
 }
 
+/**
+ * `pinged_roles` of a post answer: the roles the server really pinged. Malformed entries are dropped rather than failing a post that
+ * already happened; the screens compare it with what was asked for.
+ */
+function parsePingedRoles(value: unknown): PingedRole[] {
+  if (!Array.isArray(value)) return []
+  return value.slice(0, 10).flatMap((item): PingedRole[] => (isRecord(item) && isValidSnowflake(item['id']) ? [{ id: item['id'], name: str(item['name'], 100) }] : []))
+}
+
+function parseTeamRole(json: unknown): RacingTeamRole {
+  if (!isRecord(json) || !isValidSnowflake(json['role_id'])) throw invalid('team roles')
+  return { roleId: json['role_id'], name: str(json['name'], 100), team: str(json['team'], 100), mentionable: json['mentionable'] === true }
+}
+
 export function createRacingApi(client: ApiClient): RacingApi {
   const racingPath = (guildId: string, game: RacingGame, suffix: string): string => {
     if (!isValidSnowflake(guildId)) throw clientError('invalid_guild_id', 'That server ID is not valid.')
@@ -194,6 +216,16 @@ export function createRacingApi(client: ApiClient): RacingApi {
     const trimmed = name.trim()
     if (trimmed === '' || [...trimmed].length > 50) throw clientError('invalid_name', 'Enter a team name of 1 to 50 characters.')
     return trimmed
+  }
+  /**
+   * `ping_role_ids` of a post, checked before any request: only numeric ids (so "@everyone", "@here" and mention text can never be sent),
+   * at most 3 distinct roles, and never the server's own id (that is the @everyone role). No roles: the field is left out, which is exactly
+   * the request of before M6.
+   */
+  const pingBody = (guildId: string, roleIds: readonly string[] | undefined): { ping_role_ids?: string[] } => {
+    const parsed = parsePingRoleIds(roleIds, guildId)
+    if (!parsed.ok) throw clientError(parsed.problem.code, parsed.problem.message)
+    return parsed.value.length > 0 ? { ping_role_ids: parsed.value } : {}
   }
   const userId = (value: string): string => {
     if (!isValidSnowflake(value)) throw clientError('invalid_user_id', 'That member ID is not valid.')
@@ -311,9 +343,14 @@ export function createRacingApi(client: ApiClient): RacingApi {
       return parseAttendancePost(await client.request({ path: racingPath(guildId, game, `attendance/${messageId}`) }), true)
     },
 
+    async racingTeamRoles(guildId, game) {
+      return list(await client.request({ path: racingPath(guildId, game, 'team-roles') }), 'roles', 'team roles').map(parseTeamRole)
+    },
+
     async createRacingAttendance(guildId, game, input) {
       if (!isValidSnowflake(input.channelId)) throw clientError('invalid_channel', 'That channel is not valid.')
-      // One attempt, never replayed: a lost answer may already have posted the message in Discord.
+      const pings = pingBody(guildId, input.pingRoleIds)
+      // One attempt, never replayed: a lost answer may already have posted the message in Discord, and may already have pinged people.
       const json = await client.request({
         method: 'POST',
         path: racingPath(guildId, game, 'attendance'),
@@ -321,18 +358,20 @@ export function createRacingApi(client: ApiClient): RacingApi {
           channel_id: input.channelId,
           name: input.name,
           date: input.date,
-          ...(input.description !== undefined && input.description !== '' ? { description: input.description } : {})
+          ...(input.description !== undefined && input.description !== '' ? { description: input.description } : {}),
+          ...pings
         }
       })
       if (!isRecord(json) || !isValidSnowflake(json['channel_id'])) throw invalid('attendance post')
-      return { post: parseAttendancePost(json['post'], false), channelId: json['channel_id'] }
+      return { post: parseAttendancePost(json['post'], false), channelId: json['channel_id'], pingedRoles: parsePingedRoles(json['pinged_roles']) }
     },
 
     async postRacingAnnouncement(guildId, game, input) {
       if (!isValidSnowflake(input.channelId)) throw clientError('invalid_channel', 'That channel is not valid.')
       // The server only takes https (the command lets http through, the API does not): http is refused here, before any request.
       if (input.imageUrl !== undefined && input.imageUrl !== '' && !isValidImageUrl(input.imageUrl)) throw clientError('invalid_image_url', 'Use a full https:// image link without spaces (at most 500 characters).')
-      // One attempt, never replayed: a lost answer may already have posted the message in Discord.
+      const pings = pingBody(guildId, input.pingRoleIds)
+      // One attempt, never replayed: a lost answer may already have posted the message in Discord, and may already have pinged people.
       const json = await client.request({
         method: 'POST',
         path: racingPath(guildId, game, 'announcement'),
@@ -340,11 +379,12 @@ export function createRacingApi(client: ApiClient): RacingApi {
           channel_id: input.channelId,
           title: input.title,
           message: input.message,
-          ...(input.imageUrl !== undefined && input.imageUrl !== '' ? { image_url: input.imageUrl } : {})
+          ...(input.imageUrl !== undefined && input.imageUrl !== '' ? { image_url: input.imageUrl } : {}),
+          ...pings
         }
       })
       if (!isRecord(json) || json['ok'] !== true || !isValidSnowflake(json['message_id']) || !isValidSnowflake(json['channel_id'])) throw invalid('announcement')
-      return { messageId: json['message_id'], channelId: json['channel_id'] }
+      return { messageId: json['message_id'], channelId: json['channel_id'], pingedRoles: parsePingedRoles(json['pinged_roles']) }
     }
   }
 }

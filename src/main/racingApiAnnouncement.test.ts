@@ -23,7 +23,7 @@ describe.each(GAME_KEYS)('announcement of %s', (game: RacingGame) => {
     expect(calls[0]).toMatchObject({ method: 'POST', path: `${BASE}/${game}/announcement`, body: { channel_id: CH, title: 'Round 3!', message: 'Full text :emoji_name:' } })
     expect(Object.keys(calls[0]?.body as object).sort()).toEqual(['channel_id', 'message', 'title'])
     expect(calls[1]?.body).toMatchObject({ image_url: 'https://example.com/fake.png' })
-    expect(result).toEqual({ messageId: MSG, channelId: CH })
+    expect(result).toEqual({ messageId: MSG, channelId: CH, pingedRoles: [] })
   })
 
   it('sends the text exactly as typed: no escaping, no conversion, no trimming of formatting characters', async () => {

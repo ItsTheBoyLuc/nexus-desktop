@@ -101,6 +101,7 @@ const bridge: NexusBridge = {
     racingResults: (guildId, game, query) => ipcRenderer.invoke(IPC.apiRacingResults, guildId, game, query),
     racingAttendance: (guildId, game, page) => ipcRenderer.invoke(IPC.apiRacingAttendance, guildId, game, page),
     racingAttendancePost: (guildId, game, messageId) => ipcRenderer.invoke(IPC.apiRacingAttendancePost, guildId, game, messageId),
+    racingTeamRoles: (guildId, game) => ipcRenderer.invoke(IPC.apiRacingTeamRoles, guildId, game),
     createRacingAttendance: (guildId, game, input) => ipcRenderer.invoke(IPC.apiRacingAttendanceCreate, guildId, game, input),
     postRacingAnnouncement: (guildId, game, input) => ipcRenderer.invoke(IPC.apiRacingAnnouncement, guildId, game, input),
     logRacingResult: (guildId, game, input) => ipcRenderer.invoke(IPC.apiRacingResultLog, guildId, game, input),
@@ -109,7 +110,8 @@ const bridge: NexusBridge = {
   },
   settings: {
     get: () => ipcRenderer.invoke(IPC.settingsGet),
-    set: (patch) => ipcRenderer.invoke(IPC.settingsSet, patch)
+    set: (patch) => ipcRenderer.invoke(IPC.settingsSet, patch),
+    rememberPostChannel: (guildId, game, channelId) => ipcRenderer.invoke(IPC.settingsRememberPostChannel, guildId, game, channelId)
   },
   system: {
     openExternal: (url) => ipcRenderer.invoke(IPC.openExternal, url),

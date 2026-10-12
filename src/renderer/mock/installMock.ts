@@ -20,6 +20,7 @@
  *   noreports | nopenaltyconfig | nostaff | lostdecisions | nodirty   reports and penalties, see mock/stewardMock.ts
  *   nodivisions | nosignups | noconfirmperms | nomanagechannels | ambiguousconfirm | lostcreates   attendance and sign-ups, see mock/attendanceMock.ts
  *   noracingteams | nomanage | nomanageroles | lostracing | noresults | noattendance | nomanager | nomanager-<game>   esports teams of the five games, see mock/racingMock.ts
+ *   manyteamroles | norolelist | invalidping | toomanyping | pingrefused | pinglimit   role pings of the esports posts, see mock/pingMock.ts
  *   notadmin                       staff only, not Administrator: saving settings returns 403
  *                                  admin_required and linking an admin-level role returns
  *                                  403 role_too_privileged
@@ -36,7 +37,8 @@
 import type { NexusBridge, Unsubscribe } from '../../shared/bridge'
 import { isCatalogGameEnabled } from '../../shared/leagueGames'
 import { panelKey, sanitizePanels } from '../../shared/panels'
-import { DEFAULT_SETTINGS, GAME_LABELS } from '../../shared/types'
+import { postChannelKey } from '../../shared/pingRoles'
+import { DEFAULT_SETTINGS, GAME_KEYS, GAME_LABELS } from '../../shared/types'
 import type {
   AnnouncementResult,
   ApiStatus,
@@ -61,6 +63,7 @@ import { clone, failure, notFound, sleep, timeoutFailure } from './common'
 import { createAttendanceMock } from './attendanceMock'
 import { createF1Mock } from './f1Mock'
 import { createRacingMock } from './racingMock'
+import { MENTION_ALL_CHANNEL, ROLE_DELETED_MEANWHILE, ROLE_NOT_MENTIONABLE } from './pingMock'
 import type { F1MockContext } from './f1Mock'
 import { createStewardMock } from './stewardMock'
 
@@ -102,7 +105,9 @@ const CHANNELS: Channel[] = [
   { id: '777000000000000007', name: 'timeout-test' },
   // Listed, but the bot / the caller lost access after the list was loaded: posting there is refused (see mock/f1Mock.ts).
   { id: '777000000000000008', name: 'bot-locked' },
-  { id: '777000000000000009', name: 'staff-only-hidden' }
+  { id: '777000000000000009', name: 'staff-only-hidden' },
+  // Where the bot has Mention Everyone: a role that is not mentionable can be pinged here (see mock/pingMock.ts).
+  { id: MENTION_ALL_CHANNEL, name: 'mention-everyone-ok' }
 ]
 const CH_SIGNUPS = '777000000000000005'
 const CH_TIER1 = '777000000000000006'
@@ -112,16 +117,31 @@ const HIDDEN_CHANNEL = '777000000000000009' // the caller cannot see it: 403 for
 
 // ── Roles ───────────────────────────────────────────────────────────────────
 
-const role = (n: number, name: string, over: Partial<Role> = {}): Role => ({
-  id: `8000000000000000${String(n).padStart(2, '0')}`,
-  name,
-  color: null,
-  position: 50 - n,
-  managed: false,
-  assignable: true,
-  privileged: false,
-  ...over
-})
+const MEMBER_COUNTS: Record<string, number> = {
+  '800000000000000001': 18, '800000000000000002': 24, '800000000000000003': 31, '800000000000000004': 6,
+  '800000000000000005': 2, '800000000000000009': 4, '800000000000000010': 12, '800000000000000011': 9,
+  '800000000000000012': 7, '800000000000000013': 15, '800000000000000014': 11, '800000000000000015': 28, '800000000000000016': 3,
+  '800000000000000017': 40, '800000000000000018': 5,
+  // For the role pings (M6): one role above 50 members, one that is not mentionable, one whose count is only approximate.
+  '800000000000000019': 60, [ROLE_NOT_MENTIONABLE]: 8, '800000000000000021': 14, [ROLE_DELETED_MEANWHILE]: 3
+}
+
+const role = (n: number, name: string, over: Partial<Role> = {}): Role => {
+  const id = `8000000000000000${String(n).padStart(2, '0')}`
+  return {
+    id,
+    name,
+    color: null,
+    position: 50 - n,
+    managed: false,
+    assignable: true,
+    privileged: false,
+    mentionable: true,
+    memberCount: MEMBER_COUNTS[id] ?? 0,
+    memberCountApproximate: false,
+    ...over
+  }
+}
 
 const ROLES: Role[] = [
   role(1, 'Tier 1 Drivers', { color: '#FF8800' }),
@@ -141,14 +161,15 @@ const ROLES: Role[] = [
   role(15, 'GT3 Drivers'),
   role(16, 'Sprint Series'),
   role(17, 'Streamers'),
-  role(18, 'Commentators')
+  role(18, 'Commentators'),
+  role(19, 'Big Announcements Group', { color: '#E62020' }), // 60 members: needs the extra checkbox before it is pinged
+  role(20, 'Quiet Role (not mentionable)', { mentionable: false }),
+  role(21, 'Cache Still Filling', { memberCountApproximate: true }), // "about 14 members"
+  role(22, 'Role Deleted Meanwhile') // listed, but the server answers role_not_found when it is pinged
 ]
-const MEMBER_COUNTS: Record<string, number> = {
-  '800000000000000001': 18, '800000000000000002': 24, '800000000000000003': 31, '800000000000000004': 6,
-  '800000000000000005': 2, '800000000000000009': 4, '800000000000000010': 12, '800000000000000011': 9,
-  '800000000000000012': 7, '800000000000000013': 15, '800000000000000014': 11, '800000000000000015': 28, '800000000000000016': 3
-}
 const MISSING_ROLE = '899000000000000099' // a tier whose Discord role was deleted
+/** The roles a server lists: Midnight GT has an incomplete member cache, so every count there is approximate ("about N members"). */
+const rolesOf = (guildId: string): Role[] => (guildId === MIDNIGHT ? ROLES.map((item) => ({ ...item, memberCountApproximate: true })) : ROLES)
 
 // ── League games and tiers (the league_games.json of each fake server) ─────
 
@@ -295,7 +316,9 @@ export function installMockBridge(): void {
     liveMessages,
     newMessageId: () => String(nextMessage++),
     apex: APEX,
-    midnight: MIDNIGHT
+    midnight: MIDNIGHT,
+    serverRoles: (guildId) => rolesOf(guildId),
+    mentionAllChannel: MENTION_ALL_CHANNEL
   }
   const f1 = createF1Mock(mockContext)
   const steward = createStewardMock(mockContext)
@@ -454,7 +477,13 @@ export function installMockBridge(): void {
         }),
 
       channels: (guildId) => api(() => (known(guildId) ? { ok: true, data: guildId === TURBO ? [] : CHANNELS } : guildMissing())),
-      roles: (guildId) => api(() => (known(guildId) ? { ok: true, data: clone(ROLES) } : guildMissing())),
+      // The server's roles plus the role of every team (M6: with member counts, and "about" counts on the server with an incomplete member cache).
+      roles: (guildId) =>
+        api(() => {
+          if (!known(guildId)) return guildMissing()
+          if (scenario === 'norolelist') return failure('http', 'internal_error', 'The server hit an unexpected problem.', 500)
+          return { ok: true, data: clone(racing.roles(guildId)) }
+        }),
 
       postAnnouncement: (_guildId, input) =>
         api<AnnouncementResult>(() => {
@@ -605,6 +634,11 @@ export function installMockBridge(): void {
           ...(patch.lastGame !== undefined ? { lastGame: patch.lastGame } : {}),
           ...(patch.reduceMotion !== undefined ? { reduceMotion: patch.reduceMotion } : {})
         }
+        return clone(settings)
+      },
+      // Like the real main process: a channel id of a real game, nothing else.
+      rememberPostChannel: async (guildId, game, channelId) => {
+        if (/^\d{15,25}$/.test(guildId) && /^\d{15,25}$/.test(channelId) && GAME_KEYS.includes(game)) settings = { ...settings, postChannels: { ...settings.postChannels, [postChannelKey(guildId, game)]: channelId } }
         return clone(settings)
       }
     },

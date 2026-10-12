@@ -44,6 +44,18 @@ export function describeRacingError(error: unknown, gameLabel: string): string {
       return `That member is not in the server and is on no ${gameLabel} team.`
     case 'unknown_game':
       return 'That game has no esports team module.'
+    case 'invalid_ping_roles':
+      return 'The roles to ping were not accepted. Remove them and pick them again from the list. Nothing was posted.'
+    case 'too_many_ping_roles':
+      return 'A post can ping at most 3 roles. Remove one and try again. Nothing was posted.'
+    case 'role_not_found':
+      return 'One of the roles to ping no longer exists in this server. The list was refreshed: remove that role and pick again. Nothing was posted.'
+    case 'role_not_pingable':
+      return '@everyone and roles managed by a bot or integration cannot be pinged. Remove that role and pick another one. Nothing was posted.'
+    case 'bot_cannot_mention_role':
+      return 'Discord would not ping that role. Make the role mentionable in Discord (Server Settings, Roles, "Allow anyone to @mention this role"), or give the Nexus role the Mention Everyone permission in that channel. Nothing was posted.'
+    case 'rate_limited':
+      return 'Too many posts in a short time. Posts that ping roles are limited to 5 per minute for each person on each server. Wait a minute, then try again. Nothing was posted.'
     default:
       return describeError(error)
   }
@@ -227,6 +239,19 @@ export const ATTENDANCE_POSTED_AS_TYPED = 'The name, date and description are po
 export const ATTENDANCE_LOST_TEXT =
   'Nexus did not get a clear answer, so the post may already be in Discord. It is not sent again with the same data, because that would post it twice. Refresh the posts and check the channel in Discord before you create anything.'
 
+/**
+ * Added to the "may already be in Discord" texts when roles were chosen: a lost answer may also have notified people already, and a
+ * pinged person cannot be un-pinged. For the attendance post a server error has one more caveat: when the record could not be saved after the
+ * message was sent, the server deletes the message again, but the members who were pinged keep their notification.
+ */
+export const PING_LOST_TEXT = 'Because roles were chosen, the message may already have pinged people. Check the channel first, and do not post it again until you have.'
+export const ATTENDANCE_SERVER_ERROR_PING_TEXT = 'If the post could not be saved after a pinging message was sent, Nexus deleted the message again, but members who were already pinged keep the notification.'
+
+/** The text of an attendance post whose answer was lost, with the ping caveats when roles were chosen. */
+export function attendanceLostText(pinged: boolean): string {
+  return pinged ? `${ATTENDANCE_LOST_TEXT} ${PING_LOST_TEXT} ${ATTENDANCE_SERVER_ERROR_PING_TEXT}` : ATTENDANCE_LOST_TEXT
+}
+
 export type AttendanceColumn = 'date' | 'name' | 'available' | 'unavailable'
 
 export const ATTENDANCE_GETTERS: Record<AttendanceColumn, (post: RacingAttendanceSummary) => string | number | null> = {
@@ -262,6 +287,11 @@ export const ANNOUNCEMENT_AS_TYPED_TEXT =
 
 export const ANNOUNCEMENT_LOST_TEXT =
   'Nexus did not get a clear answer, so the announcement may already be in the channel. It is not sent again with the same data, because that would post it twice. The app cannot read announcements back, so look at the channel in Discord before you post anything.'
+
+/** The text of an announcement whose answer was lost, with the ping caveat when roles were chosen. */
+export function announcementLostText(pinged: boolean): string {
+  return pinged ? `${ANNOUNCEMENT_LOST_TEXT} ${PING_LOST_TEXT}` : ANNOUNCEMENT_LOST_TEXT
+}
 
 /** The footer the message gets: "Posted via Nexus App by <name>", followed by the footer text of the server. */
 export function announcementFooter(name: string): string {

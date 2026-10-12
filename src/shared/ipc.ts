@@ -85,11 +85,13 @@ export const IPC = {
   apiRacingAttendance: 'api:racing-attendance',
   apiRacingAttendancePost: 'api:racing-attendance-post',
   apiRacingAttendanceCreate: 'api:racing-attendance-create',
+  apiRacingTeamRoles: 'api:racing-team-roles',
   apiGetStatus: 'api:get-status',
   apiStatusChanged: 'api:status-changed',
 
   settingsGet: 'settings:get',
   settingsSet: 'settings:set',
+  settingsRememberPostChannel: 'settings:remember-post-channel',
 
   openExternal: 'system:open-external',
   copyText: 'system:copy-text'

@@ -54,7 +54,12 @@ describe('participant data is never written to disk or browser storage', () => {
       // milestone 5, part 2: the results archive names drivers, and the attendance lists name members
       'renderer/screens/EsportsResults.tsx',
       'renderer/screens/EsportsAttendance.tsx',
-      'renderer/screens/EsportsAnnouncement.tsx'
+      'renderer/screens/EsportsAnnouncement.tsx',
+      // milestone 6: the roles to ping and their member counts
+      'renderer/components/PingRolesField.tsx',
+      'renderer/components/PostConfirmDialog.tsx',
+      'renderer/components/PostResultDialog.tsx',
+      'renderer/lib/pingRoles.ts'
     ]
     for (const name of handlers) {
       const text = read(join(SRC, name))
@@ -116,6 +121,6 @@ describe('the settings file cannot be made to hold participant data', () => {
     store.set({ lastGame: 'f1' }) // any save rewrites the file from what the store knows
     const written = readFileSync(file, 'utf8')
     expect(written).not.toContain(SECRET)
-    expect(Object.keys(JSON.parse(written) as object).sort()).toEqual(['calendarPosts', 'lastGame', 'lastGuildId', 'ledger', 'panels', 'reduceMotion'])
+    expect(Object.keys(JSON.parse(written) as object).sort()).toEqual(['calendarPosts', 'lastGame', 'lastGuildId', 'ledger', 'panels', 'postChannels', 'reduceMotion'])
   })
 })

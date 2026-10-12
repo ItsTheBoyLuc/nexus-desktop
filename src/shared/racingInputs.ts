@@ -1,6 +1,7 @@
 import type { Parsed } from './inputs'
+import { parsePingRoleIds } from './pingRoles'
 import { isRacingGame, teamNameProblem, validateRacingAttendanceDraft, validateRacingEventDraft, validateRacingPage, validateRacingResultDraft, validateRacingResultQuery, validateRacingTeamDraft, validateRosterAddDraft } from './racingValidation'
-import type { AnnouncementInput, RacingAttendanceInput, RacingEventInput, RacingGame, RacingResultInput, RacingResultQuery, RacingTeamInput, RosterAddInput } from './types'
+import type { RacingAnnouncementInput, RacingAttendanceInput, RacingEventInput, RacingGame, RacingResultInput, RacingResultQuery, RacingTeamInput, RosterAddInput } from './types'
 import { isValidSnowflake, validateAnnouncement } from './validation'
 
 /**
@@ -82,12 +83,18 @@ export function parseRacingResultQuery(input: unknown): Parsed<RacingResultQuery
 export function parseRacingAttendanceInput(input: unknown): Parsed<RacingAttendanceInput> {
   const record = isRecord(input) ? input : {}
   const result = validateRacingAttendanceDraft({ channelId: text(record['channelId']), name: text(record['name']), date: text(record['date']), description: text(record['description']) })
-  return result.ok ? result : { ok: false, message: firstError(result.errors) }
+  if (!result.ok) return { ok: false, message: firstError(result.errors) }
+  const pings = parsePingRoleIds(record['pingRoleIds'])
+  if (!pings.ok) return { ok: false, message: pings.problem.message }
+  return { ok: true, value: { ...result.value, ...(pings.value.length > 0 ? { pingRoleIds: pings.value } : {}) } }
 }
 
 /** The announcement of one game: the same fields and limits as the server-level announcement (title 150, message 1500, https image 500). */
-export function parseRacingAnnouncementInput(input: unknown): Parsed<AnnouncementInput> {
+export function parseRacingAnnouncementInput(input: unknown): Parsed<RacingAnnouncementInput> {
   const record = isRecord(input) ? input : {}
   const result = validateAnnouncement({ title: text(record['title']), message: text(record['message']), channelId: text(record['channelId']), imageUrl: text(record['imageUrl']) })
-  return result.ok ? result : { ok: false, message: firstError(result.errors) }
+  if (!result.ok) return { ok: false, message: firstError(result.errors) }
+  const pings = parsePingRoleIds(record['pingRoleIds'])
+  if (!pings.ok) return { ok: false, message: pings.problem.message }
+  return { ok: true, value: { ...result.value, ...(pings.value.length > 0 ? { pingRoleIds: pings.value } : {}) } }
 }

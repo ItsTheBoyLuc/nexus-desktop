@@ -241,7 +241,11 @@ export function createNexusApi(client: ApiClient): NexusApi {
             position: typeof item['position'] === 'number' ? item['position'] : 0,
             managed: item['managed'] === true,
             assignable: item['assignable'] === true,
-            privileged: item['privileged'] === true
+            privileged: item['privileged'] === true,
+            // M6. Only `mentionable: true` counts as mentionable; a count that is missing or unreadable is "unknown", never 0.
+            mentionable: item['mentionable'] === true,
+            memberCount: isCount(item['member_count']) ? item['member_count'] : null,
+            memberCountApproximate: item['member_count_approximate'] === true || !isCount(item['member_count'])
           }
         ]
       })

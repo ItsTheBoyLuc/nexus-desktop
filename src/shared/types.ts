@@ -53,6 +53,12 @@ export interface Role {
   assignable: boolean
   /** Carries elevated permissions: only a server Administrator may link it. */
   privileged: boolean
+  /** M6: anyone may ping the role. A role that is not mentionable can only be pinged when the bot has Mention Everyone in the channel. */
+  mentionable: boolean
+  /** M6: members holding the role, from the bot's member cache; null when the count could not be read. */
+  memberCount: number | null
+  /** M6: the cache is incomplete (or the count is unknown), so the real number may be higher. */
+  memberCountApproximate: boolean
 }
 
 export interface AnnouncementInput {
@@ -65,6 +71,30 @@ export interface AnnouncementInput {
 export interface AnnouncementResult {
   messageId: string
   channelId: string
+}
+
+/** A role the server pinged with a post (M6): the id and the name it had at that moment. */
+export interface PingedRole {
+  id: string
+  name: string
+}
+
+/** The announcement of one esports game: the same fields, plus up to 3 roles to ping (M6). */
+export interface RacingAnnouncementInput extends AnnouncementInput {
+  pingRoleIds?: string[]
+}
+
+export interface RacingAnnouncementResult extends AnnouncementResult {
+  /** The roles the server pinged; empty when nobody was. */
+  pingedRoles: PingedRole[]
+}
+
+/** One entry of GET /racing/{game}/team-roles: the Discord role of a team of this game (M6). */
+export interface RacingTeamRole {
+  roleId: string
+  name: string
+  team: string
+  mentionable: boolean
 }
 
 export type SignedOutReason =
@@ -1107,9 +1137,14 @@ export interface Settings {
   ledger: LedgerEntry[]
   /** The "Reduce animations" switch of the Preferences popover. The operating system's own reduced-motion setting is honoured as well. */
   reduceMotion: boolean
+  /**
+   * The last channel chosen for an esports post, by `guildId:game` (see shared/pingRoles.ts). A channel id and nothing else: never a role id,
+   * a member, a name or message text. Only the main process writes it.
+   */
+  postChannels: Record<string, string>
 }
 
-export const DEFAULT_SETTINGS: Settings = { lastGuildId: null, lastGame: null, panels: {}, calendarPosts: {}, ledger: [], reduceMotion: false }
+export const DEFAULT_SETTINGS: Settings = { lastGuildId: null, lastGame: null, panels: {}, calendarPosts: {}, ledger: [], reduceMotion: false, postChannels: {} }
 
 /** What the renderer may change itself; panels are only ever written by the main process. */
 export type SettingsPatch = Partial<Pick<Settings, 'lastGuildId' | 'lastGame' | 'reduceMotion'>>
@@ -1194,10 +1229,14 @@ export interface RacingAttendanceInput {
   name: string
   date: string
   description?: string
+  /** M6: up to 3 roles to ping with the post. Absent or empty: nobody is pinged. */
+  pingRoleIds?: string[]
 }
 
 /** What creating a post returns: the post and the channel it was posted in (the server does not store the channel). */
 export interface RacingAttendanceResult {
   post: RacingAttendancePost
   channelId: string
+  /** M6: the roles the server pinged; empty when nobody was. */
+  pingedRoles: PingedRole[]
 }

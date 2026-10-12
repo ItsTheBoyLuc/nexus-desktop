@@ -46,6 +46,7 @@ import type {
   RaceOutcome,
   RemoveDriverResult,
   ResultLine,
+  Role,
   RoundResult,
   ServerLedgerEntry,
   Settings,
@@ -76,6 +77,10 @@ export interface F1MockContext {
   newMessageId: () => string
   apex: string
   midnight: string
+  /** The fake roles of a server for the role pings (M6): the ones of GET /roles that are not a team's. Optional: without it only team roles exist. */
+  serverRoles?: (guildId: string) => Role[]
+  /** The channel where the bot has Mention Everyone, so a role that is not mentionable can be pinged there (M6). */
+  mentionAllChannel?: string
 }
 
 type F1Api = Pick<

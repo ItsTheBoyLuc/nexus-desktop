@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { DEFAULT_SETTINGS } from '../../shared/types'
+import { postChannelKey } from '../../shared/pingRoles'
 import type { GameKey, Settings } from '../../shared/types'
 import { applyMotionMode } from '../lib/motion'
 
@@ -11,6 +12,10 @@ interface SettingsContextValue {
   remember: (guildId: string | null, game: GameKey | null) => void
   /** The "Reduce animations" switch: applied at once and saved in the settings file. */
   setReduceMotion: (reduce: boolean) => void
+  /** The channel last chosen for the esports posts of one game on one server (a channel id only), or null. */
+  postChannelOf: (guildId: string, game: GameKey) => string | null
+  /** Remember the channel just chosen for the esports posts of one game on one server. Only the id is stored. */
+  rememberPostChannel: (guildId: string, game: GameKey, channelId: string) => void
   /** Re-read the file (after a panel was posted or forgotten: only the main process writes panels). */
   reload: () => Promise<void>
 }
@@ -53,6 +58,16 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     void window.nexus.settings.set({ reduceMotion: reduce })
   }, [])
 
+  const postChannelOf = useCallback((guildId: string, game: GameKey): string | null => settings.postChannels[postChannelKey(guildId, game)] ?? null, [settings.postChannels])
+
+  const rememberPostChannel = useCallback((guildId: string, game: GameKey, channelId: string) => {
+    setSettings((current) => {
+      const key = postChannelKey(guildId, game)
+      return current.postChannels[key] === channelId ? current : { ...current, postChannels: { ...current.postChannels, [key]: channelId } }
+    })
+    void window.nexus.settings.rememberPostChannel(guildId, game, channelId).catch(() => undefined) // the file is only a convenience
+  }, [])
+
   const reload = useCallback(async () => {
     try {
       setSettings(await window.nexus.settings.get())
@@ -65,7 +80,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     applyMotionMode(document.documentElement, settings.reduceMotion)
   }, [settings.reduceMotion])
 
-  const value = useMemo(() => ({ settings, loaded, remember, setReduceMotion, reload }), [settings, loaded, remember, setReduceMotion, reload])
+  const value = useMemo(() => ({ settings, loaded, remember, setReduceMotion, postChannelOf, rememberPostChannel, reload }), [settings, loaded, remember, setReduceMotion, postChannelOf, rememberPostChannel, reload])
   return <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>
 }
 

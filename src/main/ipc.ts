@@ -291,6 +291,7 @@ export function registerIpc(deps: IpcDeps): void {
   handle(IPC.apiRacingResults, (guildId, game, query) => racing(guildId, game, (id, g) => deps.api.racingResults(id, g, valid(parseRacingResultQuery(query)))))
   handle(IPC.apiRacingAttendance, (guildId, game, page) => racing(guildId, game, (id, g) => deps.api.racingAttendance(id, g, valid(parseRacingPage(page)))))
   handle(IPC.apiRacingAttendancePost, (guildId, game, messageId) => racing(guildId, game, (id, g) => deps.api.racingAttendancePost(id, g, valid(parseMessageId(messageId)))))
+  handle(IPC.apiRacingTeamRoles, (guildId, game) => racing(guildId, game, (id, g) => deps.api.racingTeamRoles(id, g)))
   handle(IPC.apiRacingAttendanceCreate, (guildId, game, input) => racing(guildId, game, (id, g) => deps.api.createRacingAttendance(id, g, valid(parseRacingAttendanceInput(input)))))
   handle(IPC.apiRacingAnnouncement, (guildId, game, input) => racing(guildId, game, (id, g) => deps.api.postRacingAnnouncement(id, g, valid(parseRacingAnnouncementInput(input)))))
   handle(IPC.apiRacingResultLog, (guildId, game, input) => racing(guildId, game, (id, g) => deps.api.logRacingResult(id, g, valid(parseRacingResultInput(input)))))
@@ -299,6 +300,11 @@ export function registerIpc(deps: IpcDeps): void {
 
   handle(IPC.settingsGet, () => deps.settings.get())
   handle(IPC.settingsSet, (patch) => deps.settings.set(patch))
+  // Only a channel id of a real game is kept; the store refuses anything else.
+  handle(IPC.settingsRememberPostChannel, (guildId, game, channelId) => {
+    if (typeof guildId === 'string' && typeof game === 'string' && typeof channelId === 'string') deps.settings.rememberPostChannel(guildId, game, channelId)
+    return deps.settings.get()
+  })
 
   handle(IPC.openExternal, (url) => openExternalChecked(url))
   handle(IPC.copyText, (text) => copyTextChecked(text))

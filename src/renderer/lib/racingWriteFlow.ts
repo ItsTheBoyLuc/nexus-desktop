@@ -1,5 +1,13 @@
 import { errorCode, isChannelError, outcomeUnknown } from './errors'
 
+/** Backend codes (M6) that mean "the roles to ping cannot be used"; the server checks them before it posts anything. */
+export const PING_ERROR_CODES = ['invalid_ping_roles', 'too_many_ping_roles', 'role_not_found', 'role_not_pingable', 'bot_cannot_mention_role'] as const
+
+export function isPingError(error: unknown): boolean {
+  const code = errorCode(error)
+  return code !== null && (PING_ERROR_CODES as readonly string[]).includes(code)
+}
+
 /**
  * What the esports screens do after a write (log a result, create an attendance post, post an announcement), free of React so the
  * rules can be tested. All three writes are append-only in effect: a result can never be deleted, and a message that was posted in
@@ -19,6 +27,8 @@ export type WriteVerdict =
   | { type: 'denied'; rule: 'manage' | 'manager' }
   /** The chosen channel cannot be used; nothing was posted. */
   | { type: 'channel' }
+  /** One of the roles to ping cannot be used; nothing was posted. The roles are kept so the user can fix them. */
+  | { type: 'ping' }
   /** Any other refusal: the server did nothing, the user may correct the data. */
   | { type: 'rejected' }
 
@@ -35,6 +45,7 @@ export function judgeWrite(error: unknown, write: RacingWrite): WriteVerdict {
   if (errorCode(error) === denied.code) return { type: 'denied', rule: denied.rule }
   // Only the two writes that post to a channel have a channel to refuse; for a result `forbidden` means "no longer staff".
   if (write !== 'result' && isChannelError(error)) return { type: 'channel' }
+  if (write !== 'result' && isPingError(error)) return { type: 'ping' }
   return { type: 'rejected' }
 }
 

@@ -2,6 +2,8 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { appendLedgerEntry, isLedgerEntry, sanitizeCalendarPosts, sanitizeLedger } from '../shared/f1Store'
 import { isStoredPanel, isValidPanelKey, MAX_STORED_PANELS, panelKey, panelKeysFor, sanitizePanels } from '../shared/panels'
+import { MAX_POST_CHANNELS, postChannelKey, sanitizePostChannels } from '../shared/pingRoles'
+import { isRacingGame } from '../shared/racingValidation'
 import { DEFAULT_SETTINGS, isGameKey } from '../shared/types'
 import type { LedgerEntry, Settings, StoredPanel } from '../shared/types'
 import { isValidKey, isValidSnowflake } from '../shared/validation'
@@ -29,6 +31,7 @@ function sanitizeStoredSettings(input: unknown): Partial<Settings> {
     if ('panels' in record) clean.panels = sanitizePanels(record['panels'])
     if ('calendarPosts' in record) clean.calendarPosts = sanitizeCalendarPosts(record['calendarPosts'])
     if ('ledger' in record) clean.ledger = sanitizeLedger(record['ledger'])
+    if ('postChannels' in record) clean.postChannels = sanitizePostChannels(record['postChannels'])
   }
   return clean
 }
@@ -52,6 +55,7 @@ export class SettingsStore {
       ...this.current,
       panels: { ...this.current.panels },
       calendarPosts: { ...this.current.calendarPosts },
+      postChannels: { ...this.current.postChannels },
       ledger: this.current.ledger.map((entry) => ({ ...entry }))
     }
   }
@@ -105,6 +109,22 @@ export class SettingsStore {
     this.write()
   }
 
+  /**
+   * Remember the channel last chosen for the esports posts of one game on one server. Only a channel id is kept: never a role id, a
+   * member, a name or any message text. Invalid input is ignored, and the newest entries survive when the cap is reached.
+   */
+  rememberPostChannel(guildId: string, game: string, channelId: string): void {
+    if (!isValidSnowflake(guildId) || !isRacingGame(game) || !isValidSnowflake(channelId)) return
+    const key = postChannelKey(guildId, game)
+    const channels = { ...this.current.postChannels }
+    delete channels[key] // re-insert so the newest entries survive when the cap is reached
+    channels[key] = channelId
+    const keys = Object.keys(channels)
+    for (const oldest of keys.slice(0, Math.max(0, keys.length - MAX_POST_CHANNELS))) delete channels[oldest]
+    this.current = { ...this.current, postChannels: channels }
+    this.write()
+  }
+
   /** Record that a race was saved, after the API confirmed it. Invalid input is ignored. */
   recordRace(entry: LedgerEntry): void {
     if (!isLedgerEntry(entry)) return
@@ -113,7 +133,7 @@ export class SettingsStore {
   }
 
   private read(): Settings {
-    const fresh = (): Settings => ({ ...DEFAULT_SETTINGS, panels: {}, calendarPosts: {}, ledger: [] })
+    const fresh = (): Settings => ({ ...DEFAULT_SETTINGS, panels: {}, calendarPosts: {}, postChannels: {}, ledger: [] })
     try {
       const raw: unknown = JSON.parse(readFileSync(this.filePath, 'utf8'))
       return { ...fresh(), ...sanitizeStoredSettings(raw) }

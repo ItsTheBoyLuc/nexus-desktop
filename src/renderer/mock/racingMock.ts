@@ -16,10 +16,12 @@
  *   nomanager       creating an attendance post and posting an announcement answer 403 manager_required for every game
  *                   (a title containing "fail" is refused with 502 discord_error: nothing is posted)
  *   nomanager-gt7   the same for ONE game only (any game key): the rule is per game, so the other four games still work
+ *   manyteamroles | invalidping | toomanyping | pingrefused | pinglimit   role pings of the posts, see mock/pingMock.ts
  *   nostaff         (existing) every call answers 403 forbidden
  *
  * Hooks (normal scenario):
  *   a team, event name, logged event name, attendance post name or announcement title containing "timeout", or the channel #timeout   it IS done, then the answer is lost
+ *   an attendance post name or announcement title containing "fail"   502 discord_error, nothing is posted (a server error: the app says the post may be there)
  *   a team name equal to an existing one, in any case   409 team_exists
  *   an unknown {game}   404 unknown_game (the real app never sends one: the bridge refuses it first)
  *
@@ -31,13 +33,13 @@
 import type { NexusBridge } from '../../shared/bridge'
 import { isPastDate, isRacingGame, parseEventDate } from '../../shared/racingValidation'
 import type {
-  AnnouncementResult,
   IpcResult,
   RacingDriverProfile,
   RacingAttendancePage,
   RacingAttendancePost,
   RacingAttendanceResult,
   RacingAttendanceSummary,
+  RacingAnnouncementResult,
   RacingAttendeeRow,
   RacingEvent,
   RacingEventPage,
@@ -46,6 +48,8 @@ import type {
   RacingResultPage,
   RacingTeam,
   RacingTeamDetail,
+  RacingTeamRole,
+  Role,
   RosterAddResult,
   RosterEntry,
   RosterRemoveResult
@@ -54,8 +58,9 @@ import { GAME_KEYS } from '../../shared/types'
 import { failure, notFound, refused, timeoutFailure } from './common'
 import type { F1MockContext } from './f1Mock'
 import { MEMBERS } from './f1Mock'
+import { checkPings, createPingLimiter } from './pingMock'
 
-type RacingMockApi = Pick<NexusBridge['api'], 'racingTeams' | 'racingTeam' | 'createRacingTeam' | 'addRosterMember' | 'removeRosterMember' | 'racingDriver' | 'racingEvents' | 'addRacingEvent' | 'racingResults' | 'logRacingResult' | 'racingAttendance' | 'racingAttendancePost' | 'createRacingAttendance' | 'postRacingAnnouncement'>
+type RacingMockApi = Pick<NexusBridge['api'], 'racingTeams' | 'racingTeam' | 'createRacingTeam' | 'addRosterMember' | 'removeRosterMember' | 'racingDriver' | 'racingEvents' | 'addRacingEvent' | 'racingResults' | 'logRacingResult' | 'racingAttendance' | 'racingAttendancePost' | 'createRacingAttendance' | 'postRacingAnnouncement' | 'racingTeamRoles'>
 
 const DAY_MS = 86_400_000
 const pad = (n: number, size = 3): string => String(n).padStart(size, '0')
@@ -216,13 +221,30 @@ function seedMidnight(): GuildStates {
   return state
 }
 
-export function createRacingMock(ctx: F1MockContext): { api: RacingMockApi } {
+export function createRacingMock(ctx: F1MockContext): { api: RacingMockApi; roles: (guildId: string) => Role[] } {
   const scenario = ctx.scenario
   const states: Record<string, GuildStates> = { [ctx.apex]: seedApex(), [ctx.midnight]: seedMidnight() }
   if (scenario === 'noracingteams') for (const guild of Object.values(states)) for (const game of GAME_KEYS) guild[game] = emptyGame()
   if (scenario === 'noattendance') for (const guild of Object.values(states)) for (const game of GAME_KEYS) guild[game].posts = []
   if (scenario === 'noresults') for (const guild of Object.values(states)) for (const game of GAME_KEYS) guild[game].results = []
+  if (scenario === 'manyteamroles') {
+    // Every game gets at least 4 teams with a role: more than the 3 a post may ping.
+    for (const guild of Object.values(states)) for (const game of GAME_KEYS) while (guild[game].teams.filter((item) => item.roleExists).length < 4) guild[game].teams.push(team(`Fake Extra Team ${guild[game].teams.length + 1}`, '#6B7280', '', [[guild[game].teams.length, 'Race Driver']]))
+  }
   const stateOf = (guildId: string): GuildStates => (states[guildId] ??= emptyGuild())
+
+  /** The role of every team that still has one, as GET /roles lists it (name, member count, mentionable). */
+  const teamRoleList = (guildId: string): Role[] =>
+    GAME_KEYS.flatMap((game) =>
+      stateOf(guildId)[game].teams
+        .filter((item) => item.roleExists)
+        .map((item): Role => ({ id: item.roleId, name: item.name, color: item.color, position: 5, managed: false, assignable: true, privileged: false, mentionable: true, memberCount: item.roster.length, memberCountApproximate: false }))
+    )
+  /** Every role the server knows: the fake roles of the server plus the roles of the teams of all five games. */
+  const knownRoles = (guildId: string): Role[] => [...(ctx.serverRoles?.(guildId) ?? []), ...teamRoleList(guildId)]
+  const pingAllowed = createPingLimiter()
+  const pingCheck = (guildId: string, roleIds: readonly string[] | undefined, channelId: string) =>
+    checkPings({ scenario, guildId, roleIds, channelId, roles: knownRoles(guildId), allowed: () => pingAllowed(guildId) })
 
   const nostaff = scenario === 'nostaff'
   const lost = (name: string): boolean => scenario === 'lostracing' || /timeout/i.test(name)
@@ -418,27 +440,40 @@ export function createRacingMock(ctx: F1MockContext): { api: RacingMockApi } {
         managerGate(guildId, game, (state) => {
           const problem = channelProblem(input.channelId)
           if (problem) return problem
+          const pings = pingCheck(guildId, input.pingRoleIds, input.channelId)
+          if ('error' in pings) return pings.error
+          if (/\bfail\b/i.test(input.name)) return failure('http', 'discord_error', 'Discord rejected the message.', 502) // Discord refused: nothing posted
           const created: PostState = { messageId: ctx.newMessageId(), name: input.name, date: input.date, description: input.description ?? '', createdAt: new Date().toISOString(), available: [], unavailable: [] }
           ctx.liveMessages.add(created.messageId)
           state.posts.unshift(created)
           if (lostPost(`${input.name} ${input.description ?? ''}`, input.channelId)) return timeoutFailure() // posted and stored, but the answer "got lost"
-          return { ok: true, data: { post: postView(created), channelId: input.channelId } }
+          return { ok: true, data: { post: postView(created), channelId: input.channelId, pingedRoles: pings.pinged } }
         })
       ),
 
     postRacingAnnouncement: (guildId, game, input) =>
-      ctx.api<AnnouncementResult>(() =>
+      ctx.api<RacingAnnouncementResult>(() =>
         managerGate(guildId, game, () => {
           // The server is stricter than the command: only an https image.
           if (input.imageUrl !== undefined && !/^https:\/\//i.test(input.imageUrl)) return failure('http', 'invalid_image_url', 'The image URL must be an https link.', 400)
           const problem = channelProblem(input.channelId)
           if (problem) return problem
+          const pings = pingCheck(guildId, input.pingRoleIds, input.channelId)
+          if ('error' in pings) return pings.error
           if (/\bfail\b/i.test(input.title)) return failure('http', 'discord_error', 'Discord rejected the message.', 502) // Discord refused: nothing posted
           const messageId = ctx.newMessageId()
           ctx.liveMessages.add(messageId)
           if (lostPost(input.title, input.channelId)) return timeoutFailure() // posted, but the answer "got lost"
-          return { ok: true, data: { messageId, channelId: input.channelId } }
+          return { ok: true, data: { messageId, channelId: input.channelId, pingedRoles: pings.pinged } }
         })
+      ),
+
+    racingTeamRoles: (guildId, game) =>
+      ctx.api<RacingTeamRole[]>(() =>
+        gate(guildId, game, (state) => ({
+          ok: true,
+          data: [...state.teams].filter((item) => item.roleExists).sort((a, b) => a.name.localeCompare(b.name)).map((item): RacingTeamRole => ({ roleId: item.roleId, name: item.name, team: item.name, mentionable: true }))
+        }))
       ),
 
     addRacingEvent: (guildId, game, input) =>
@@ -452,5 +487,5 @@ export function createRacingMock(ctx: F1MockContext): { api: RacingMockApi } {
       )
   }
 
-  return { api }
+  return { api, roles: knownRoles }
 }

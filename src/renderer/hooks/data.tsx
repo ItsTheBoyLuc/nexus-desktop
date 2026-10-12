@@ -21,6 +21,7 @@ import type {
   RacingGame,
   RacingTeam,
   RacingTeamDetail,
+  RacingTeamRole,
   Report,
   ReportRoundDetail,
   ReportRoundRow,
@@ -247,4 +248,19 @@ export function useRacingAttendancePost(guildId: string | undefined, game: Racin
 
 export function useRacingDriver(guildId: string | undefined, game: RacingGame, userId: string | null): Loaded<RacingDriverProfile> {
   return useApiData(guildId && userId ? racingKey(guildId, game, 'driver', userId) : null, () => unwrap(window.nexus.api.racingDriver(guildId ?? '', game, userId ?? '')), false)
+}
+
+// ── Role pings (milestone 6) ────────────────────────────────────────────────
+
+/**
+ * The roles of the server for the ping picker. Never from the shared cache: the member counts and the "mentionable" flag decide what the
+ * confirmation says, so they are read when the screen opens (and again after a refused ping).
+ */
+export function usePingRoles(guildId: string | undefined): Loaded<Role[]> {
+  return useApiData(guildId ? `roles:${guildId}:ping` : null, () => unwrap(window.nexus.api.roles(guildId ?? '')), false)
+}
+
+/** The Discord roles of the teams of one game (the quick action "All {game} team roles"), keyed by server AND game. */
+export function useRacingTeamRoles(guildId: string | undefined, game: RacingGame): Loaded<RacingTeamRole[]> {
+  return useApiData(guildId ? racingKey(guildId, game, 'team-roles') : null, () => unwrap(window.nexus.api.racingTeamRoles(guildId ?? '', game)), false)
 }
