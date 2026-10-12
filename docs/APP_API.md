@@ -8,11 +8,12 @@ bot's Flask app. This file is the contract: **every registered route is listed h
 **M2 — F1 league core (calendar, teams and drivers, standings, points system)** and
 **M3 — Reports, penalty points, bans, dirty drivers** (plus a results ledger and the points-system defaults) and
 **M4 — Attendance (divisions and posts) and sign-ups (questions, panels, participants)** and
-**M5 — Esports teams for the five `/racing` games (teams, roster, events, results archive, attendance, announcements)**.
+**M5 — Esports teams for the five `/racing` games (teams, roster, events, results archive, attendance, announcements)** and
+**M6 (part 1) — optional channel and role pings for the esports attendance post and announcement, team-role picker, role member counts**.
 
 Contents: [Conventions](#conventions) · [Auth](#auth) · [Base](#base-endpoints) · [Pickers](#pickers) ·
 [Overview](#overview) · [Server settings](#server-settings) · [Games & tiers](#games--tiers) · [F1 league](#f1-league) ·
-[Reports and penalties](#reports-and-penalties-m3) · [Attendance and sign-ups](#attendance-and-sign-ups-m4) · [Esports teams](#esports-teams-m5) · [Sync notes](#sync-with-discord)
+[Reports and penalties](#reports-and-penalties-m3) · [Attendance and sign-ups](#attendance-and-sign-ups-m4) · [Esports teams](#esports-teams-m5) · [Posting and role pings](#posting-to-a-channel-with-optional-role-pings-m6) · [Sync notes](#sync-with-discord)
 
 ---
 
@@ -49,6 +50,9 @@ Branch on `error`, show `message`. Unexpected failures are `500 internal_error` 
 | 403 | `admin_required` | Endpoint needs Administrator (not just staff) |
 | 403 | `manage_server_required` / `manager_required` | M5 permission rules (see the Esports section) |
 | 403 | `bot_cannot_send` | The bot lacks permission to post in that channel |
+| 400 | `invalid_ping_roles` / `too_many_ping_roles` | M6: `ping_role_ids` is malformed / has more than 3 roles |
+| 404 | `role_not_found` | M6: a role in `ping_role_ids` is not in this server |
+| 403 | `role_not_pingable` / `bot_cannot_mention_role` | M6: `@everyone` or a bot-managed role / a non-mentionable role the bot may not mention |
 | 409 | `already_closed` / `confirmation_channel_ambiguous` / … | State conflicts (codes listed per endpoint) |
 | 404 | `guild_not_found` | The bot is not in that server |
 | 404 | `unknown_game` | `{game}` is not one of `lmu`, `iracing`, `gt7`, `acc`, `f1` |
@@ -71,6 +75,7 @@ Token bucket, per user. Exceeding it returns `429 rate_limited` with a `Retry-Af
 |---|---|---|
 | Reads | 60 / minute | every authenticated request |
 | Writes | 10 / minute | every `POST` / `PUT` / `PATCH` / `DELETE` under `/guilds/{guild_id}/…` |
+| Role pings | 5 / minute per user **and server** | a post with `ping_role_ids` (M6), on top of the write limit |
 | Member search | 30 / minute | `GET /guilds/{guild_id}/members` (on top of the read limit) |
 | Auth endpoints | 10 / minute per IP | `/auth/exchange`, `/auth/refresh` |
 | Login pages | 20 / minute per IP | `/app/auth/login`, `/app/auth/callback` |
@@ -86,6 +91,7 @@ store as `{ts, user_id, username, guild_id, action, detail}`. Actions: `announce
 `f1.penalty_settings.update`, `f1.penalty.add|clear|ban_give|ban_remove|advance_race`, `f1.dirty_driver.report|remove_report`,
 `attendance.division.update`, `attendance.post.create`, `signup.questions.update`, `signup.create`, `signup.close`, `signup.participant.remove`,
 `esports.team.create`, `esports.roster.add|remove`, `esports.event.add`, `esports.result.log`, `esports.attendance.create`, `esports.announcement.post`.
+The two esports posting entries also carry `ping_role_ids` (the roles pinged, `[]` for none) in `detail` (M6).
 
 ---
 
@@ -220,13 +226,17 @@ Response `200`:
 
 ```json
 { "roles": [ { "id": "800…", "name": "Tier 1 Drivers", "color": "#FF8800" | null, "position": 5,
-               "managed": false, "assignable": true, "privileged": false } ] }
+               "managed": false, "assignable": true, "privileged": false,
+               "mentionable": true, "member_count": 12, "member_count_approximate": false } ] }
 ```
 
 * `assignable` — the bot can hand the role out (not managed, below the bot's highest role). Disable non-assignable roles in the picker.
 * `privileged` — the role carries elevated permissions (administrator, manage server/roles/channels/webhooks/messages, kick, ban, timeout, @everyone mention).
   Only an Administrator may link such a role to a tier (`403 role_too_privileged`).
 * `managed` — bot/integration role; cannot be used for tiers.
+* `mentionable` (M6) — the role can be pinged by anyone; a non-mentionable role can only be pinged if the bot has Mention Everyone in the channel.
+* `member_count` (M6) — how many members hold the role, from the bot's member cache only (no Discord call). `member_count_approximate` is `true` while that cache is incomplete
+  (the real count may be higher) or the count could not be read (`member_count: null`).
 
 ### GET /guilds/{guild_id}/members
 
@@ -1045,7 +1055,7 @@ Request: `{ "name": "Elite", "regular_drivers": ["2001"], "reserve_drivers": ["2
 all strings, all members of the server, duplicates are collapsed.
 
 Response `201` (created) or `200` (updated): `{ "division": { …as in the list… }, "created": true, "overlap": [] }`.
-`overlap` lists user IDs that are in **both** lists. The command has no rule against that and neither does the API (it stores what you send), but such a driver is
+`overlap` lists user IDs that are in **both** lists (the same shared `_attendance_overlap` list `/f1 attendance-setup` now warns about). Neither the command nor the API blocks saving it (they store what you send), but such a driver is
 auto-marked Present at creation and then cannot use the Present button — worth warning the user.
 
 Errors: `400 invalid_name | invalid_regular_drivers | invalid_reserve_drivers | member_not_found | no_changes | invalid_request`.
@@ -1202,15 +1212,15 @@ Errors: `400 invalid_signup_id | invalid_user_id`, `404 signup_not_found | parti
 
 ### Command quirks found during M4 (not changed)
 
-* **`/f1 attendance-setup` has no overlap rule**: a driver can be in both lists. They are then auto-marked Present and refused by the Present button. (`overlap` in the PUT response lets the app warn.)
+* **`/f1 attendance-setup` has no overlap rule**: a driver can be in both lists. They are then auto-marked Present and refused by the Present button. *Fixed (command bug fixes):* the setup reply now shows an "In both lists" warning (the same list the PUT response returns as `overlap`); saving is still not blocked.
 * **Editing the `Main` division does not touch the legacy top-level lists**, which posts created before multi-division support (no `division`) keep reading.
-* **The "Regular drivers marked as present automatically" note on an attendance embed** looks at the *legacy* guild-wide list, so it never shows on a server that only uses divisions.
-* **`/league signup-remove`** needs the target to be a current member (the API does not), and **`/league signup-list`** puts a sign-up's answers into an embed unescaped (the confirmation embed escapes them).
-* **Sign-up confirmations fail silently**: if the bot cannot post to / create the confirmation channel the driver still sees "signed up" and only the log says otherwise. The channel is re-resolved by a fuzzy name on every submission, so renaming or adding a similarly named channel can redirect it.
+* **The "Regular drivers marked as present automatically" note on an attendance embed** looked at the *legacy* guild-wide list, so it never showed on a server that only uses divisions. *Fixed (command bug fixes):* it now reads the post's own division (a legacy post without a division still reads the legacy list).
+* **`/league signup-remove`** needs the target to be a current member (the API does not), and **`/league signup-list`** put a sign-up's answers into an embed unescaped (the confirmation embed escapes them) — *fixed (command bug fixes):* it escapes them too.
+* **Sign-up confirmations failed silently**: if the bot cannot post to / create the confirmation channel the driver still saw "signed up" and only the log said otherwise. *Fixed (command bug fixes):* the driver now also gets a note that the confirmation could not be posted and that staff should check the confirmation channel (what is stored is unchanged). The channel is re-resolved by a fuzzy name on every submission, so renaming or adding a similarly named channel can redirect it.
 * **`_find_signup(title)`** returns the *first* sign-up whose title contains the text (not the newest), so a reused title can hit an old sign-up.
 * **The settings modal** keeps 2 questions silently, cannot store a comma, and two questions sharing their first 45 characters would overwrite each other's answer.
-* **`/league signup`, `signup-close` and `signup-remove` change the in-memory sign-ups without holding `_signups_lock`** (only the save is locked) — a concurrent save can in theory iterate a dictionary that is being changed.
-  The participant write (`_finalize_signup`), the API and the create modal now hold the lock for the whole change.
+* **`/league signup`, `signup-close` and `signup-remove` changed the in-memory sign-ups without holding `_signups_lock`** (only the save was locked) — a concurrent save could in theory iterate a dictionary that is being changed.
+  The participant write (`_finalize_signup`), the API and the create modal hold the lock for the whole change; *fixed (command bug fixes):* `signup-close` and `signup-remove` now do too (`_signups_update`).
 * **`_toggle`, the attendance post and the setup / migration code used an unlocked load → modify → save** (two simultaneous clicks, or a click and an app write, could drop one). They now use the locked update helpers; behaviour is otherwise identical (proven by `scripts/test_bot_extractions_m4.py`).
 
 ---
@@ -1379,15 +1389,78 @@ Errors: `400 invalid_message_id`, `404 post_not_found`.
 Request: `{ "channel_id": "777…", "name": "Tuesday Practice", "date": "2026-09-14", "description": "…" }` — `channel_id` a text channel from `GET /channels`, `name` 1–100, `date` 1–20 (free text), `description` optional ≤ 300.
 Posted as typed (Discord formatting characters render; member names in the lists are escaped by the shared embed builder). Response `201`: `{ "game", "post": { …as in the single read… }, "channel_id" }`; `post.message_id` is the handle (the channel is not stored).
 If the record cannot be saved after the message was sent, the message is deleted again.
-Errors: `400 invalid_name | invalid_date | invalid_channel | invalid_description`, `403 manager_required | bot_cannot_send | forbidden`, `404 channel_not_found`, `502 discord_error`, `504 bot_timeout`.
+**M6:** optional `ping_role_ids` (see [Posting to a channel, with optional role pings](#posting-to-a-channel-with-optional-role-pings-m6)); the response gains `"pinged_roles": [ { "id", "name" } ]`.
+Errors: `400 invalid_name | invalid_date | invalid_channel | invalid_description | invalid_ping_roles | too_many_ping_roles`, `403 manager_required | bot_cannot_send | forbidden | role_not_pingable | bot_cannot_mention_role`,
+`404 channel_not_found | role_not_found`, `429 rate_limited`, `502 discord_error`, `504 bot_timeout`.
 
 ### POST /guilds/{guild_id}/racing/{game}/announcement
 
 `/racing {game} announcement`. Needs **Manage Server, Administrator, or a Manager / Coach of one of this game's teams**.
 Request: `{ "channel_id": "777…", "title": "Round 3!", "message": "Full text… :emoji_name:", "image_url": "https://…" }` — `title` 1–150 (single line), `message` 1–1500, `image_url` optional **https** URL ≤ 500
 (the command also lets `http://` links through; the API is stricter). `:emoji_name:` of the server's emoji is converted like the command does; nothing else is escaped, so Discord formatting characters render.
-The footer reads `Posted via Nexus App by {name} · {server footer}`. Response `201`: `{ "ok": true, "game", "message_id", "channel_id" }`.
-Errors: `400 invalid_title | invalid_message | invalid_channel | invalid_image_url`, `403 manager_required | bot_cannot_send | forbidden`, `404 channel_not_found`, `502 discord_error`, `504 bot_timeout`.
+The footer reads `Posted via Nexus App by {name} · {server footer}`. Response `201`: `{ "ok": true, "game", "message_id", "channel_id", "pinged_roles": [ { "id", "name" } ] }`.
+**M6:** optional `ping_role_ids` (see [Posting to a channel, with optional role pings](#posting-to-a-channel-with-optional-role-pings-m6)); `pinged_roles` is `[]` when not used.
+Errors: `400 invalid_title | invalid_message | invalid_channel | invalid_image_url | invalid_ping_roles | too_many_ping_roles`, `403 manager_required | bot_cannot_send | forbidden | role_not_pingable | bot_cannot_mention_role`,
+`404 channel_not_found | role_not_found`, `429 rate_limited`, `502 discord_error`, `504 bot_timeout`.
+
+### Posting to a channel, with optional role pings (M6)
+
+**Part 1 (this version): the attendance post and the announcement.** Teams, events and results follow in part 2 — nothing for them is documented or available yet.
+
+`POST …/attendance` and `POST …/announcement` accept one new, optional field:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `ping_role_ids` | array of role-ID strings, optional | Roles to ping with the post. Absent, `null` or `[]` = no ping, **exactly the behaviour of before**. At most **3** roles; duplicates are posted once. |
+
+`channel_id` is **unchanged and still required** on both endpoints (omitting it is `400 invalid_channel`, as before). The extra field changes nothing else in the request.
+
+**How the ping is built.** The mentions go in the message **content** (`<@&id> <@&id>`), above the embed. `allowed_mentions` lists exactly the chosen roles: no users, no `@everyone` / `@here`, no replied-to user.
+Nothing the caller types can add a mention: the embed text is never part of the content, and only numeric role IDs are accepted (`"@everyone"`, `"@here"` and mention text are `400 invalid_ping_roles`).
+
+**Refused before anything is posted** (all roles are checked first; one bad role refuses the whole request and no message, no stored record and no audit entry is made):
+
+| Case | Response |
+|---|---|
+| Not a list of numeric ID strings | `400 invalid_ping_roles` |
+| More than 3 distinct roles | `400 too_many_ping_roles` |
+| Role is not in this server (including a role of another server or a deleted one) | `404 role_not_found` |
+| The `@everyone` role (its ID equals the server ID) | `403 role_not_pingable` |
+| A bot / integration-managed role (bots, boosters, …) | `403 role_not_pingable` |
+| Role is **not mentionable** and the bot does not have **Mention Everyone** in that channel (Discord would silently drop the ping) | `403 bot_cannot_mention_role` |
+
+The existing channel errors apply unchanged and are checked first: `invalid_channel`, `404 channel_not_found`, `403 bot_cannot_send` (the bot needs View Channel, Send Messages and Embed Links), `403 forbidden` (the caller cannot see the channel).
+
+**Permission.** Unchanged: Manage Server, Administrator, or a Manager / Coach of one of **this game's** teams. Pinging adds no extra permission and no extra privilege. A caller without that permission gets `403 manager_required` before any role is looked at, so it also learns nothing about roles.
+
+**Rate limit.** Every request that pings is limited to **5 per minute per user per server** (shared by both endpoints and all games), on top of the normal write limit. The sixth gets `429 rate_limited` with `Retry-After`, and nothing is posted.
+Posts without `ping_role_ids` are not counted. A request refused for any of the reasons above does not use up the limit.
+
+**Response.** Both endpoints keep their shape and add `pinged_roles`:
+
+```json
+{ "ok": true, "game": "iracing", "message_id": "900…", "channel_id": "777…", "pinged_roles": [ { "id": "820…", "name": "Drivers" } ] }
+```
+
+(For the attendance post the same field sits next to `post` and `channel_id`.) `pinged_roles` is `[]` when nobody was pinged.
+
+**If posting fails.** For the attendance post and the announcement the post *is* the item (the attendance record is keyed by the message ID; an announcement stores nothing), so a failed post is an error response (`403 bot_cannot_send`, `502 discord_error`, `504 bot_timeout`, …) and **nothing is stored**.
+The server never retries a post by itself. If the attendance record cannot be saved after the message was sent, the message is deleted again (members who were pinged keep the notification they already got; that cannot be undone).
+The `post_error` field (stored item plus a failed post, so the app can offer "Post again") belongs to the endpoints whose item exists independently of a post — they arrive in part 2.
+
+**Edits never ping again.** The Available / Not Available buttons re-render the post by editing it with the embed and the view only, never the message content and never `allowed_mentions`. A role ping is therefore sent once, when the post is created, and survives every later toggle without notifying anyone again.
+
+**Audit.** Every post is logged as before (`esports.attendance.create`, `esports.announcement.post`) with `detail` = `{ game, channel_id, message_id, name | title, ping_role_ids: [...] }` and the caller's `user_id` / `username` on the entry. `ping_role_ids` is `[]` when nobody was pinged.
+
+### GET /guilds/{guild_id}/racing/{game}/team-roles
+
+The Discord role of every team of this game — the picker for `ping_role_ids`. Read from the stored teams; **a team whose role no longer exists (or has no valid role ID) is left out**. Sorted by team name. Any staff member; no body.
+
+```json
+{ "game": "iracing", "roles": [ { "role_id": "910…", "name": "Apex Racing", "team": "Apex Racing", "mentionable": true } ] }
+```
+
+`name` is the role's current name. `mentionable: false` means the post will be refused with `bot_cannot_mention_role` unless the bot may mention everyone in the target channel, so the app can warn up front. Errors: only the standard ones and `404 unknown_game`.
 
 ### Things that cannot be done through the API (M5)
 
@@ -1401,11 +1474,11 @@ Errors: `400 invalid_title | invalid_message | invalid_channel | invalid_image_u
 
 ### Command quirks found during M5 (not changed)
 
-* **`roster-add` rolls back by removing the role even when the member was already on the roster**, which also strips a team role they legitimately had. The API checks the roster first and only rolls back a role it added itself.
+* **`roster-add` rolls back by removing the role even when the member was already on the roster**, which also strips a team role they legitimately had. The API checks the roster first and only rolls back a role it added itself. *Fixed (command bug fixes):* the commands now also only roll back a role they added themselves.
 * **`roster-add` and the roster check do not validate the role text** (any 30 characters), so `"manager "` or `"Captain"` is stored as typed; the leader check only recognises `manager` / `coach` (case-insensitive).
 * **`event-add` does not validate the date**; an unparseable date is kept and listed last forever, and `03/04/2026` is read as March 4th (the `MM/DD/YYYY` format is tried before `DD/MM/YYYY`).
 * **`roster-info` / `team-stats` / `event-calendar` show at most 20 entries** (and a roster longer than 1024 characters is cut) without saying so.
-* **The announcement title is not escaped** (`📢 {title}`) and an `http://` image link is accepted; the description is only emoji-converted.
+* **The announcement title was not escaped** (`📢 {title}`) and an `http://` image link was accepted; the description is only emoji-converted. *Fixed (command bug fixes):* the shared embed builder now escapes the title (so the API's announcement does too) and the commands refuse an image URL that does not start with `https://`.
 * **A deleted team role** makes `roster-add` fail ("Team role not found") with no way to relink it, and a deleted team cannot be removed.
 * **`/racing lmu` still carries its own copy of every handler** (`class_focus` / `class` field names, own view and custom ids). The shared helpers behind them are now one set of functions, but the two storage shapes remain.
 
