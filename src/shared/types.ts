@@ -89,6 +89,56 @@ export interface RacingAnnouncementResult extends AnnouncementResult {
   pingedRoles: PingedRole[]
 }
 
+/** A card that was posted in Discord (M6): where, which message and the roles the server pinged. */
+export interface CardPost {
+  channelId: string
+  messageId: string
+  pingedRoles: PingedRole[]
+}
+
+/** `post_error` of a create (M6): the item WAS saved, only the post failed. `code` is the server's error code. */
+export interface CardPostError {
+  code: string
+  message: string
+}
+
+/**
+ * What a create with `channelId` says about its card. `posted`: it is in Discord. `failed`: the item is saved but the post failed
+ * (the app may offer "Post again", a new user action). `unknown`: the server said neither, so nobody can tell: look in Discord.
+ */
+export type CardOutcome = { status: 'posted'; post: CardPost } | { status: 'failed'; error: CardPostError } | { status: 'unknown' }
+
+/** An item as the server returned it, plus `card` when a card was asked for with it (absent when no channel was sent). */
+export type WithCard<T> = T & { card?: CardOutcome }
+
+/** The card of an existing team, event or result (the dedicated "Post to Discord" endpoints, M6 part 2). */
+export interface CardPostResult {
+  messageId: string
+  channelId: string
+  pingedRoles: PingedRole[]
+}
+
+export interface RacingTeamPostInput {
+  /** A team has no id other than its name. */
+  team: string
+  channelId: string
+  pingRoleIds?: string[]
+}
+
+export interface RacingEventPostInput {
+  /** The `id` of the event from the events list. */
+  id: string
+  channelId: string
+  pingRoleIds?: string[]
+}
+
+export interface RacingResultPostInput {
+  /** The `id` of the result from the results list. */
+  id: string
+  channelId: string
+  pingRoleIds?: string[]
+}
+
 /** One entry of GET /racing/{game}/team-roles: the Discord role of a team of this game (M6). */
 export interface RacingTeamRole {
   roleId: string
@@ -1018,6 +1068,10 @@ export interface RacingTeamInput {
   color: string
   /** Optional free text, at most 30 characters. */
   focus?: string
+  /** M6: post the new team's card in this channel too. Absent: nothing is posted. */
+  channelId?: string
+  /** M6: roles to ping with the card (at most 3). Needs `channelId`. */
+  pingRoleIds?: string[]
 }
 
 export interface RosterAddInput {
@@ -1084,6 +1138,10 @@ export interface RacingEventInput {
   time: string
   class?: string
   notes?: string
+  /** M6: post the new event's card in this channel too. Absent: nothing is posted. */
+  channelId?: string
+  /** M6: roles to ping with the card (at most 3). Needs `channelId`. */
+  pingRoleIds?: string[]
 }
 
 export type ApiErrorKind =
@@ -1187,6 +1245,10 @@ export interface RacingResultInput {
   result: string
   drivers: string
   notes?: string
+  /** M6: post the new result's card in this channel too. Absent: nothing is posted. */
+  channelId?: string
+  /** M6: roles to ping with the card (at most 3). Needs `channelId`. */
+  pingRoleIds?: string[]
 }
 
 export interface RacingAttendanceCounts {

@@ -86,6 +86,9 @@ export const IPC = {
   apiRacingAttendancePost: 'api:racing-attendance-post',
   apiRacingAttendanceCreate: 'api:racing-attendance-create',
   apiRacingTeamRoles: 'api:racing-team-roles',
+  apiRacingTeamPost: 'api:racing-team-post',
+  apiRacingEventPost: 'api:racing-event-post',
+  apiRacingResultPost: 'api:racing-result-post',
   apiGetStatus: 'api:get-status',
   apiStatusChanged: 'api:status-changed',
 

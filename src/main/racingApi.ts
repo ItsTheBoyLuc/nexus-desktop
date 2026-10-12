@@ -1,7 +1,9 @@
 import { isMessageId } from '../shared/attendanceValidation'
-import { parsePingRoleIds } from '../shared/pingRoles'
+import { isCardId, parsePingRoleIds, parsePostTarget } from '../shared/pingRoles'
 import { isRacingGame } from '../shared/racingValidation'
 import type {
+  CardOutcome,
+  CardPostResult,
   PingedRole,
   RacingAnnouncementInput,
   RacingAnnouncementResult,
@@ -14,21 +16,25 @@ import type {
   RacingDriverProfile,
   RacingEvent,
   RacingEventInput,
+  RacingEventPostInput,
   RacingEventPage,
   RacingGame,
   RacingResult,
   RacingResultInput,
   RacingResultPage,
+  RacingResultPostInput,
   RacingResultQuery,
   RacingMembership,
   RacingTeam,
   RacingTeamDetail,
   RacingTeamInput,
+  RacingTeamPostInput,
   RacingTeamRole,
   RosterAddInput,
   RosterAddResult,
   RosterEntry,
-  RosterRemoveResult
+  RosterRemoveResult,
+  WithCard
 } from '../shared/types'
 import { isValidHexColor, isValidImageUrl, isValidSnowflake } from '../shared/validation'
 import type { ApiClient } from './apiClient'
@@ -49,20 +55,30 @@ import { clientError, invalid, isCount, isRecord, list } from './apiParse'
 export interface RacingApi {
   racingTeams: (guildId: string, game: RacingGame) => Promise<RacingTeam[]>
   racingTeam: (guildId: string, game: RacingGame, name: string) => Promise<RacingTeamDetail>
-  createRacingTeam: (guildId: string, game: RacingGame, input: RacingTeamInput) => Promise<RacingTeamDetail>
+  /**
+   * Creates the team and its Discord role. With `channelId` (M6) its card is posted too: the answer then has `card` (posted, or failed: the team
+   * IS saved). Never replayed.
+   */
+  createRacingTeam: (guildId: string, game: RacingGame, input: RacingTeamInput) => Promise<WithCard<RacingTeamDetail>>
   addRosterMember: (guildId: string, game: RacingGame, input: RosterAddInput) => Promise<RosterAddResult>
   removeRosterMember: (guildId: string, game: RacingGame, team: string, userId: string) => Promise<RosterRemoveResult>
   racingDriver: (guildId: string, game: RacingGame, userId: string) => Promise<RacingDriverProfile>
   racingEvents: (guildId: string, game: RacingGame, page?: { limit?: number; offset?: number }) => Promise<RacingEventPage>
-  addRacingEvent: (guildId: string, game: RacingGame, input: RacingEventInput) => Promise<RacingEvent>
+  addRacingEvent: (guildId: string, game: RacingGame, input: RacingEventInput) => Promise<WithCard<RacingEvent>>
   /** The append-only results archive, oldest first, paged exactly as the server pages it. `team` narrows it to one team (the team stats). */
   racingResults: (guildId: string, game: RacingGame, query?: RacingResultQuery) => Promise<RacingResultPage>
   /** Appends one entry. Never replayed: logging the same result twice creates two entries. */
-  logRacingResult: (guildId: string, game: RacingGame, input: RacingResultInput) => Promise<RacingResult>
+  logRacingResult: (guildId: string, game: RacingGame, input: RacingResultInput) => Promise<WithCard<RacingResult>>
   /** Attendance posts of the game, newest first, paged as the server pages them. */
   racingAttendance: (guildId: string, game: RacingGame, page?: { limit?: number; offset?: number }) => Promise<RacingAttendancePage>
   /** One post with the names of the drivers who pressed Available and Not Available (read-only: drivers set their own status in Discord). */
   racingAttendancePost: (guildId: string, game: RacingGame, messageId: string) => Promise<RacingAttendancePost>
+  /** Posts the card of an EXISTING team (M6, part 2). Changes no stored data. Never replayed: a lost answer may already have posted the card and pinged people. */
+  postRacingTeam: (guildId: string, game: RacingGame, input: RacingTeamPostInput) => Promise<CardPostResult>
+  /** Posts the card of an EXISTING event, by its id. Never replayed. */
+  postRacingEvent: (guildId: string, game: RacingGame, input: RacingEventPostInput) => Promise<CardPostResult>
+  /** Posts the card of an EXISTING archived result, by its id. Never replayed. */
+  postRacingResult: (guildId: string, game: RacingGame, input: RacingResultPostInput) => Promise<CardPostResult>
   /** The Discord role of every team of this game (M6): the quick pick for the roles to ping. A team whose role was deleted is not listed. */
   racingTeamRoles: (guildId: string, game: RacingGame) => Promise<RacingTeamRole[]>
   /**
@@ -194,6 +210,26 @@ function parsePingedRoles(value: unknown): PingedRole[] {
   return value.slice(0, 10).flatMap((item): PingedRole[] => (isRecord(item) && isValidSnowflake(item['id']) ? [{ id: item['id'], name: str(item['name'], 100) }] : []))
 }
 
+/**
+ * What a create says about its card: exactly one of `post` / `post_error` is there when a channel was sent. `post_error` means the item was
+ * saved and only the post failed. When the server says neither, the outcome is `unknown`: nobody can tell whether the card is in Discord.
+ */
+function parseCardOutcome(json: Record<string, unknown>): CardOutcome {
+  const post = json['post']
+  if (isRecord(post) && isValidSnowflake(post['channel_id']) && isValidSnowflake(post['message_id'])) {
+    return { status: 'posted', post: { channelId: post['channel_id'], messageId: post['message_id'], pingedRoles: parsePingedRoles(post['pinged_roles']) } }
+  }
+  const failed = json['post_error']
+  if (isRecord(failed)) return { status: 'failed', error: { code: str(failed['error'], 60) || 'discord_error', message: str(failed['message'], 300) } }
+  return { status: 'unknown' }
+}
+
+/** The answer of a dedicated post endpoint: the message and channel are required (the link is built from them), the roles are what the server says it pinged. */
+function parseCardPostResult(json: unknown): CardPostResult {
+  if (!isRecord(json) || json['ok'] !== true || !isValidSnowflake(json['message_id']) || !isValidSnowflake(json['channel_id'])) throw invalid('card post')
+  return { messageId: json['message_id'], channelId: json['channel_id'], pingedRoles: parsePingedRoles(json['pinged_roles']) }
+}
+
 function parseTeamRole(json: unknown): RacingTeamRole {
   if (!isRecord(json) || !isValidSnowflake(json['role_id'])) throw invalid('team roles')
   return { roleId: json['role_id'], name: str(json['name'], 100), team: str(json['team'], 100), mentionable: json['mentionable'] === true }
@@ -227,6 +263,26 @@ export function createRacingApi(client: ApiClient): RacingApi {
     if (!parsed.ok) throw clientError(parsed.problem.code, parsed.problem.message)
     return parsed.value.length > 0 ? { ping_role_ids: parsed.value } : {}
   }
+  /**
+   * The optional card of a create: `channel_id` + `ping_role_ids`, checked before any request with the rules of the posts. No channel: the request is
+   * exactly the one of before M6 (roles without a channel are refused here, like the server does, never dropped).
+   */
+  const cardFields = (guildId: string, input: { channelId?: string | undefined; pingRoleIds?: readonly string[] | undefined }): { fields: { channel_id?: string; ping_role_ids?: string[] }; posting: boolean } => {
+    const target = parsePostTarget(input.channelId, input.pingRoleIds, guildId)
+    if (!target.ok) throw clientError(target.problem.code, target.problem.message)
+    if (target.value === null) return { fields: {}, posting: false }
+    return { fields: { channel_id: target.value.channelId, ...(target.value.pingRoleIds.length > 0 ? { ping_role_ids: target.value.pingRoleIds } : {}) }, posting: true }
+  }
+  /** The body of a dedicated post: the channel is required. */
+  const requiredCard = (guildId: string, input: { channelId: string; pingRoleIds?: readonly string[] | undefined }): { channel_id: string; ping_role_ids?: string[] } => {
+    const { fields } = cardFields(guildId, input)
+    if (fields.channel_id === undefined) throw clientError('invalid_channel', 'Choose a channel to post in.')
+    return { channel_id: fields.channel_id, ...(fields.ping_role_ids ? { ping_role_ids: fields.ping_role_ids } : {}) }
+  }
+  const cardId = (value: string, code: 'invalid_event_id' | 'invalid_result_id'): string => {
+    if (!isCardId(value)) throw clientError(code, code === 'invalid_event_id' ? 'That event cannot be posted: it has no usable id.' : 'That result cannot be posted: it has no usable id.')
+    return value
+  }
   const userId = (value: string): string => {
     if (!isValidSnowflake(value)) throw clientError('invalid_user_id', 'That member ID is not valid.')
     return value
@@ -244,14 +300,16 @@ export function createRacingApi(client: ApiClient): RacingApi {
     },
 
     async createRacingTeam(guildId, game, input) {
-      // One attempt, never replayed: a lost answer may already have created the team's Discord role.
+      const card = cardFields(guildId, input)
+      // One attempt, never replayed: a lost answer may already have created the team's Discord role (and posted its card).
       const json = await client.request({
         method: 'POST',
         path: racingPath(guildId, game, 'teams'),
-        body: { name: teamName(input.name), color: input.color, ...(input.focus !== undefined && input.focus !== '' ? { focus: input.focus } : {}) }
+        body: { name: teamName(input.name), color: input.color, ...(input.focus !== undefined && input.focus !== '' ? { focus: input.focus } : {}), ...card.fields }
       })
       if (!isRecord(json)) throw invalid('team')
-      return parseTeamDetail(json['team'])
+      const team = parseTeamDetail(json['team'])
+      return card.posting ? { ...team, card: parseCardOutcome(json) } : team
     },
 
     async addRosterMember(guildId, game, input) {
@@ -287,7 +345,8 @@ export function createRacingApi(client: ApiClient): RacingApi {
     },
 
     async addRacingEvent(guildId, game, input) {
-      // One attempt, never replayed: a lost answer may well have stored the event, and the server keeps it forever.
+      const card = cardFields(guildId, input)
+      // One attempt, never replayed: a lost answer may well have stored the event (and posted its card), and the server keeps it forever.
       const json = await client.request({
         method: 'POST',
         path: racingPath(guildId, game, 'events'),
@@ -296,11 +355,13 @@ export function createRacingApi(client: ApiClient): RacingApi {
           date: input.date,
           time: input.time,
           ...(input.class !== undefined && input.class !== '' ? { class: input.class } : {}),
-          ...(input.notes !== undefined && input.notes !== '' ? { notes: input.notes } : {})
+          ...(input.notes !== undefined && input.notes !== '' ? { notes: input.notes } : {}),
+          ...card.fields
         }
       })
       if (!isRecord(json)) throw invalid('event')
-      return parseEvent(json['event'])
+      const event = parseEvent(json['event'])
+      return card.posting ? { ...event, card: parseCardOutcome(json) } : event
     },
 
     async racingResults(guildId, game, queryParams = {}) {
@@ -316,7 +377,8 @@ export function createRacingApi(client: ApiClient): RacingApi {
     },
 
     async logRacingResult(guildId, game, input) {
-      // One attempt, never replayed: a lost answer may well have appended the entry, and the archive has no delete.
+      const card = cardFields(guildId, input)
+      // One attempt, never replayed: a lost answer may well have appended the entry (and posted its card), and the archive has no delete.
       const json = await client.request({
         method: 'POST',
         path: racingPath(guildId, game, 'results'),
@@ -325,11 +387,13 @@ export function createRacingApi(client: ApiClient): RacingApi {
           event_name: input.eventName,
           result: input.result,
           drivers: input.drivers,
-          ...(input.notes !== undefined && input.notes !== '' ? { notes: input.notes } : {})
+          ...(input.notes !== undefined && input.notes !== '' ? { notes: input.notes } : {}),
+          ...card.fields
         }
       })
       if (!isRecord(json)) throw invalid('result')
-      return parseResult(json['result'])
+      const result = parseResult(json['result'])
+      return card.posting ? { ...result, card: parseCardOutcome(json) } : result
     },
 
     async racingAttendance(guildId, game, page = {}) {
@@ -341,6 +405,25 @@ export function createRacingApi(client: ApiClient): RacingApi {
     async racingAttendancePost(guildId, game, messageId) {
       if (!isMessageId(messageId)) throw clientError('invalid_message_id', 'That post ID is not valid.')
       return parseAttendancePost(await client.request({ path: racingPath(guildId, game, `attendance/${messageId}`) }), true)
+    },
+
+    async postRacingTeam(guildId, game, input) {
+      const path = racingPath(guildId, game, 'teams/post')
+      const body = { team: teamName(input.team), ...requiredCard(guildId, input) }
+      // One attempt, never replayed: a lost answer may already have posted the card and pinged people.
+      return parseCardPostResult(await client.request({ method: 'POST', path, body }))
+    },
+
+    async postRacingEvent(guildId, game, input) {
+      const path = racingPath(guildId, game, 'events/post')
+      const body = { id: cardId(input.id, 'invalid_event_id'), ...requiredCard(guildId, input) }
+      return parseCardPostResult(await client.request({ method: 'POST', path, body }))
+    },
+
+    async postRacingResult(guildId, game, input) {
+      const path = racingPath(guildId, game, 'results/post')
+      const body = { id: cardId(input.id, 'invalid_result_id'), ...requiredCard(guildId, input) }
+      return parseCardPostResult(await client.request({ method: 'POST', path, body }))
     },
 
     async racingTeamRoles(guildId, game) {

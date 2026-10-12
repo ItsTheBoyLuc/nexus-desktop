@@ -53,7 +53,8 @@ describe.each(GAME_KEYS)('results archive of %s', (game: RacingGame) => {
   it('has no edit and no delete: the API object offers nothing that changes or removes an entry', () => {
     const { api } = setup()
     const names = Object.keys(api).filter((name) => /result/i.test(name))
-    expect(names.sort()).toEqual(['logRacingResult', 'racingResults'])
+    // postRacingResult (M6) only posts the card of an existing entry in a channel: it changes no stored data.
+    expect(names.sort()).toEqual(['logRacingResult', 'postRacingResult', 'racingResults'])
   })
 })
 

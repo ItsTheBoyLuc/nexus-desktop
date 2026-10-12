@@ -1,7 +1,7 @@
 import type { Parsed } from './inputs'
-import { parsePingRoleIds } from './pingRoles'
+import { isCardId, parsePingRoleIds, parsePostTarget } from './pingRoles'
 import { isRacingGame, teamNameProblem, validateRacingAttendanceDraft, validateRacingEventDraft, validateRacingPage, validateRacingResultDraft, validateRacingResultQuery, validateRacingTeamDraft, validateRosterAddDraft } from './racingValidation'
-import type { RacingAnnouncementInput, RacingAttendanceInput, RacingEventInput, RacingGame, RacingResultInput, RacingResultQuery, RacingTeamInput, RosterAddInput } from './types'
+import type { RacingAnnouncementInput, RacingAttendanceInput, RacingEventInput, RacingEventPostInput, RacingGame, RacingResultInput, RacingResultPostInput, RacingResultQuery, RacingTeamInput, RacingTeamPostInput, RosterAddInput } from './types'
 import { isValidSnowflake, validateAnnouncement } from './validation'
 
 /**
@@ -18,10 +18,45 @@ export function parseRacingGame(value: unknown): Parsed<RacingGame> {
   return isRacingGame(value) ? { ok: true, value } : { ok: false, message: 'That game has no esports team module.' }
 }
 
+/** The optional card of a create (M6): `channelId` + `pingRoleIds`, parsed with the same rules as the posts. Nothing when no channel is given. */
+function withCard<T extends object>(value: T, record: Record<string, unknown>): Parsed<T> {
+  const target = parsePostTarget(record['channelId'], record['pingRoleIds'])
+  if (!target.ok) return { ok: false, message: target.problem.message }
+  if (target.value === null) return { ok: true, value }
+  return { ok: true, value: { ...value, channelId: target.value.channelId, ...(target.value.pingRoleIds.length > 0 ? { pingRoleIds: target.value.pingRoleIds } : {}) } }
+}
+
 export function parseRacingTeamInput(input: unknown): Parsed<RacingTeamInput> {
   const record = isRecord(input) ? input : {}
   const result = validateRacingTeamDraft({ name: text(record['name']), color: text(record['color']), focus: text(record['focus']) })
-  return result.ok ? result : { ok: false, message: firstError(result.errors) }
+  return result.ok ? withCard(result.value, record) : { ok: false, message: firstError(result.errors) }
+}
+
+/** Post the card of an existing team: the team (by name), a channel and up to 3 roles. */
+export function parseRacingTeamPostInput(input: unknown): Parsed<RacingTeamPostInput> {
+  const record = isRecord(input) ? input : {}
+  const team = parseRacingTeamName(record['team'])
+  if (!team.ok) return team
+  const target = parsePostTarget(record['channelId'], record['pingRoleIds'])
+  if (!target.ok) return { ok: false, message: target.problem.message }
+  if (target.value === null) return { ok: false, message: 'Choose a channel to post in.' }
+  return { ok: true, value: { team: team.value, channelId: target.value.channelId, ...(target.value.pingRoleIds.length > 0 ? { pingRoleIds: target.value.pingRoleIds } : {}) } }
+}
+
+function parseCardPost(record: Record<string, unknown>, what: string): Parsed<{ id: string; channelId: string; pingRoleIds?: string[] }> {
+  if (!isCardId(record['id'])) return { ok: false, message: `That ${what} is not valid.` }
+  const target = parsePostTarget(record['channelId'], record['pingRoleIds'])
+  if (!target.ok) return { ok: false, message: target.problem.message }
+  if (target.value === null) return { ok: false, message: 'Choose a channel to post in.' }
+  return { ok: true, value: { id: record['id'], channelId: target.value.channelId, ...(target.value.pingRoleIds.length > 0 ? { pingRoleIds: target.value.pingRoleIds } : {}) } }
+}
+
+export function parseRacingEventPostInput(input: unknown): Parsed<RacingEventPostInput> {
+  return parseCardPost(isRecord(input) ? input : {}, 'event')
+}
+
+export function parseRacingResultPostInput(input: unknown): Parsed<RacingResultPostInput> {
+  return parseCardPost(isRecord(input) ? input : {}, 'result')
 }
 
 export function parseRacingTeamName(value: unknown): Parsed<string> {
@@ -53,7 +88,7 @@ export function parseRacingEventInput(input: unknown): Parsed<RacingEventInput> 
     class: text(record['class']),
     notes: text(record['notes'])
   })
-  return result.ok ? result : { ok: false, message: firstError(result.errors) }
+  return result.ok ? withCard(result.value, record) : { ok: false, message: firstError(result.errors) }
 }
 
 export function parseRacingPage(input: unknown): Parsed<{ limit?: number; offset?: number }> {
@@ -72,7 +107,7 @@ export function parseRacingResultInput(input: unknown): Parsed<RacingResultInput
     drivers: text(record['drivers']),
     notes: text(record['notes'])
   })
-  return result.ok ? result : { ok: false, message: firstError(result.errors) }
+  return result.ok ? withCard(result.value, record) : { ok: false, message: firstError(result.errors) }
 }
 
 export function parseRacingResultQuery(input: unknown): Parsed<RacingResultQuery> {

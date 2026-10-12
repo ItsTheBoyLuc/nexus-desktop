@@ -74,3 +74,27 @@ export function sanitizePostChannels(input: unknown): Record<string, string> {
   }
   return clean
 }
+
+// ── Posting a card (milestone 6, part 2) ────────────────────────────────────
+
+export type PostTargetProblem = { code: 'invalid_channel' | 'invalid_ping_roles' | 'too_many_ping_roles' | 'role_not_pingable'; message: string }
+
+/**
+ * The optional `channel_id` + `ping_role_ids` of a create (team, event, result). No channel means "do not post" and the request stays what it
+ * was before M6; roles without a channel are refused, never silently dropped (the server does the same: 400 invalid_channel).
+ */
+export function parsePostTarget(channelId: unknown, pingRoleIds: unknown, guildId?: string): { ok: true; value: { channelId: string; pingRoleIds: string[] } | null } | { ok: false; problem: PostTargetProblem } {
+  const noChannel = channelId === undefined || channelId === null || channelId === ''
+  const pings = parsePingRoleIds(pingRoleIds, guildId)
+  if (!pings.ok) return pings
+  if (noChannel) {
+    return pings.value.length > 0 ? { ok: false, problem: { code: 'invalid_channel', message: 'Choose a channel to post in: roles can only be pinged by a post.' } } : { ok: true, value: null }
+  }
+  if (!isValidSnowflake(channelId)) return { ok: false, problem: { code: 'invalid_channel', message: 'That channel is not valid. Pick a channel from the list.' } }
+  return { ok: true, value: { channelId, pingRoleIds: pings.value } }
+}
+
+/** The `id` of an event or a result, as the lists return it: 1 to 64 characters of a plain id alphabet, never anything that could change a path. */
+export function isCardId(value: unknown): value is string {
+  return typeof value === 'string' && /^[A-Za-z0-9_.:-]{1,64}$/.test(value)
+}

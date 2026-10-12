@@ -18,7 +18,7 @@ export function isPingError(error: unknown): boolean {
  *    forward is to look first (refresh the list, or check the channel in Discord), never to send the same data again,
  *  - a refusal that proves nothing was done is explained next to the field or in a notice, and the user may correct and send again.
  */
-export type RacingWrite = 'result' | 'attendance' | 'announcement'
+export type RacingWrite = 'result' | 'attendance' | 'announcement' | 'team' | 'event' | 'card'
 
 export type WriteVerdict =
   /** The server may have carried the write out. Lock the form, refresh, never offer a retry. */
@@ -35,17 +35,27 @@ export type WriteVerdict =
 /** The permission code each write is refused with. */
 const DENIED_CODE: Record<RacingWrite, { code: string; rule: 'manage' | 'manager' }> = {
   result: { code: 'manage_server_required', rule: 'manage' },
+  team: { code: 'manage_server_required', rule: 'manage' },
+  event: { code: 'manage_server_required', rule: 'manage' },
+  card: { code: 'manage_server_required', rule: 'manage' },
   attendance: { code: 'manager_required', rule: 'manager' },
   announcement: { code: 'manager_required', rule: 'manager' }
 }
 
-export function judgeWrite(error: unknown, write: RacingWrite): WriteVerdict {
+/**
+ * Writes that always have a channel to refuse. A create (team, event, result) only has one when a card was asked for with it: then the
+ * caller passes `posting = true` and a channel or role refusal is explained as such (nothing was created or posted); without a card
+ * `forbidden` still means "no longer staff".
+ */
+const ALWAYS_POSTS: Record<RacingWrite, boolean> = { attendance: true, announcement: true, card: true, result: false, team: false, event: false }
+
+export function judgeWrite(error: unknown, write: RacingWrite, posting: boolean = ALWAYS_POSTS[write]): WriteVerdict {
   if (outcomeUnknown(error)) return { type: 'lost' }
   const denied = DENIED_CODE[write]
   if (errorCode(error) === denied.code) return { type: 'denied', rule: denied.rule }
-  // Only the two writes that post to a channel have a channel to refuse; for a result `forbidden` means "no longer staff".
-  if (write !== 'result' && isChannelError(error)) return { type: 'channel' }
-  if (write !== 'result' && isPingError(error)) return { type: 'ping' }
+  // Only a write that posts to a channel has a channel to refuse; for a create without a card `forbidden` means "no longer staff".
+  if (posting && isChannelError(error)) return { type: 'channel' }
+  if (posting && isPingError(error)) return { type: 'ping' }
   return { type: 'rejected' }
 }
 

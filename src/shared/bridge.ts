@@ -4,7 +4,12 @@ import type {
   AdvanceRaceInput,
   AdvanceRaceResult,
   RacingDriverProfile,
+  CardPostResult,
   RacingAnnouncementInput,
+  RacingEventPostInput,
+  RacingResultPostInput,
+  RacingTeamPostInput,
+  WithCard,
   RacingAnnouncementResult,
   RacingAttendanceInput,
   RacingTeamRole,
@@ -235,17 +240,21 @@ export interface NexusBridge {
     /** The roster is personal data of members: keep it in memory only, never write it anywhere. */
     racingTeam: (guildId: string, game: RacingGame, name: string) => Promise<IpcResult<RacingTeamDetail>>
     /** Needs Manage Server or Administrator (403 manage_server_required). A lost answer may already have created the Discord role: never repeat it with the same data. */
-    createRacingTeam: (guildId: string, game: RacingGame, input: RacingTeamInput) => Promise<IpcResult<RacingTeamDetail>>
+    createRacingTeam: (guildId: string, game: RacingGame, input: RacingTeamInput) => Promise<IpcResult<WithCard<RacingTeamDetail>>>
     addRosterMember: (guildId: string, game: RacingGame, input: RosterAddInput) => Promise<IpcResult<RosterAddResult>>
     removeRosterMember: (guildId: string, game: RacingGame, team: string, userId: string) => Promise<IpcResult<RosterRemoveResult>>
     racingDriver: (guildId: string, game: RacingGame, userId: string) => Promise<IpcResult<RacingDriverProfile>>
     racingEvents: (guildId: string, game: RacingGame, page?: { limit?: number; offset?: number }) => Promise<IpcResult<RacingEventPage>>
-    addRacingEvent: (guildId: string, game: RacingGame, input: RacingEventInput) => Promise<IpcResult<RacingEvent>>
+    addRacingEvent: (guildId: string, game: RacingGame, input: RacingEventInput) => Promise<IpcResult<WithCard<RacingEvent>>>
     /** The append-only results archive (oldest first); `team` gives the team stats. */
     racingResults: (guildId: string, game: RacingGame, query?: RacingResultQuery) => Promise<IpcResult<RacingResultPage>>
     racingAttendance: (guildId: string, game: RacingGame, page?: { limit?: number; offset?: number }) => Promise<IpcResult<RacingAttendancePage>>
     /** The names of the drivers are personal data: keep them in memory only. */
     racingAttendancePost: (guildId: string, game: RacingGame, messageId: string) => Promise<IpcResult<RacingAttendancePost>>
+    /** Posts the card of an EXISTING team / event / result (M6, part 2). Needs Manage Server or Administrator. Changes no stored data. Never replayed: a lost answer may already have posted the card and pinged people. */
+    postRacingTeam: (guildId: string, game: RacingGame, input: RacingTeamPostInput) => Promise<IpcResult<CardPostResult>>
+    postRacingEvent: (guildId: string, game: RacingGame, input: RacingEventPostInput) => Promise<IpcResult<CardPostResult>>
+    postRacingResult: (guildId: string, game: RacingGame, input: RacingResultPostInput) => Promise<IpcResult<CardPostResult>>
     /** The Discord role of every team of this game: the quick pick for the roles to ping (M6). Teams whose role was deleted are left out. */
     racingTeamRoles: (guildId: string, game: RacingGame) => Promise<IpcResult<RacingTeamRole[]>>
     /**
@@ -256,7 +265,7 @@ export interface NexusBridge {
     /** Needs Manage Server, Administrator or a Manager or Coach of one of THIS game's teams. Only an https image is accepted. A lost answer may already have posted the message: never repeat it with the same data. */
     postRacingAnnouncement: (guildId: string, game: RacingGame, input: RacingAnnouncementInput) => Promise<IpcResult<RacingAnnouncementResult>>
     /** Appends an entry. Written once, never replayed: the same result twice is two entries. */
-    logRacingResult: (guildId: string, game: RacingGame, input: RacingResultInput) => Promise<IpcResult<RacingResult>>
+    logRacingResult: (guildId: string, game: RacingGame, input: RacingResultInput) => Promise<IpcResult<WithCard<RacingResult>>>
 
     /** Current connection status (components that mount late would otherwise miss earlier events). */
     getStatus: () => Promise<ApiStatus>

@@ -17,10 +17,13 @@
  *                   (a title containing "fail" is refused with 502 discord_error: nothing is posted)
  *   nomanager-gt7   the same for ONE game only (any game key): the rule is per game, so the other four games still work
  *   manyteamroles | invalidping | toomanyping | pingrefused | pinglimit   role pings of the posts, see mock/pingMock.ts
+ *   posterror       a create that asks for a card IS saved, then the card fails: the answer has post_error (discord_error) and the app offers "Post again"
  *   nostaff         (existing) every call answers 403 forbidden
  *
  * Hooks (normal scenario):
  *   a team, event name, logged event name, attendance post name or announcement title containing "timeout", or the channel #timeout   it IS done, then the answer is lost
+ *   a team, event or result name (or event name of a result) containing "postfail" / "postslow"   the item is saved, the card fails with post_error discord_error / bot_timeout
+ *   a team, event or result containing "fail" posted with "Post to Discord"   502 discord_error, nothing is posted
  *   an attendance post name or announcement title containing "fail"   502 discord_error, nothing is posted (a server error: the app says the post may be there)
  *   a team name equal to an existing one, in any case   409 team_exists
  *   an unknown {game}   404 unknown_game (the real app never sends one: the bridge refuses it first)
@@ -33,7 +36,10 @@
 import type { NexusBridge } from '../../shared/bridge'
 import { isPastDate, isRacingGame, parseEventDate } from '../../shared/racingValidation'
 import type {
+  CardOutcome,
+  CardPostResult,
   IpcResult,
+  PingedRole,
   RacingDriverProfile,
   RacingAttendancePage,
   RacingAttendancePost,
@@ -50,6 +56,7 @@ import type {
   RacingTeamDetail,
   RacingTeamRole,
   Role,
+  WithCard,
   RosterAddResult,
   RosterEntry,
   RosterRemoveResult
@@ -60,7 +67,7 @@ import type { F1MockContext } from './f1Mock'
 import { MEMBERS } from './f1Mock'
 import { checkPings, createPingLimiter } from './pingMock'
 
-type RacingMockApi = Pick<NexusBridge['api'], 'racingTeams' | 'racingTeam' | 'createRacingTeam' | 'addRosterMember' | 'removeRosterMember' | 'racingDriver' | 'racingEvents' | 'addRacingEvent' | 'racingResults' | 'logRacingResult' | 'racingAttendance' | 'racingAttendancePost' | 'createRacingAttendance' | 'postRacingAnnouncement' | 'racingTeamRoles'>
+type RacingMockApi = Pick<NexusBridge['api'], 'racingTeams' | 'racingTeam' | 'createRacingTeam' | 'addRosterMember' | 'removeRosterMember' | 'racingDriver' | 'racingEvents' | 'addRacingEvent' | 'racingResults' | 'logRacingResult' | 'racingAttendance' | 'racingAttendancePost' | 'createRacingAttendance' | 'postRacingAnnouncement' | 'racingTeamRoles' | 'postRacingTeam' | 'postRacingEvent' | 'postRacingResult'>
 
 const DAY_MS = 86_400_000
 const pad = (n: number, size = 3): string => String(n).padStart(size, '0')
@@ -272,6 +279,42 @@ export function createRacingMock(ctx: F1MockContext): { api: RacingMockApi; role
   }
   const lostPost = (text: string, channelId: string): boolean => scenario === 'lostracing' || /timeout/i.test(text) || channelId === ctx.timeoutChannel
 
+  /**
+   * The card of a create (M6, part 2): the channel and the roles are checked BEFORE anything is created (a refusal creates nothing, like the
+   * real server), and the card is posted after. Roles without a channel are 400 invalid_channel, never ignored.
+   */
+  const cardCheck = (guildId: string, input: { channelId?: string | undefined; pingRoleIds?: string[] | undefined }): { error: IpcResult<never> } | { post: { channelId: string; pinged: PingedRole[] } | null } => {
+    if (input.channelId === undefined || input.channelId === '') {
+      return input.pingRoleIds && input.pingRoleIds.length > 0 ? { error: failure('http', 'invalid_channel', 'ping_role_ids needs a channel_id.', 400) } : { post: null }
+    }
+    const problem = channelProblem(input.channelId)
+    if (problem) return { error: problem }
+    const pings = pingCheck(guildId, input.pingRoleIds, input.channelId)
+    if ('error' in pings) return { error: pings.error }
+    return { post: { channelId: input.channelId, pinged: pings.pinged } }
+  }
+  /** What the create says about its card once the item is saved: posted, or post_error (the item stays). */
+  const cardOutcome = (name: string, post: { channelId: string; pinged: PingedRole[] }): CardOutcome => {
+    if (/postslow/i.test(name)) return { status: 'failed', error: { code: 'bot_timeout', message: 'Discord did not answer in time.' } }
+    if (scenario === 'posterror' || /postfail/i.test(name)) return { status: 'failed', error: { code: 'discord_error', message: 'Discord rejected the message.' } }
+    const messageId = ctx.newMessageId()
+    ctx.liveMessages.add(messageId)
+    return { status: 'posted', post: { channelId: post.channelId, messageId, pingedRoles: post.pinged } }
+  }
+  const withCard = <T extends object>(item: T, name: string, post: { channelId: string; pinged: PingedRole[] } | null): WithCard<T> => (post ? { ...item, card: cardOutcome(name, post) } : item)
+  const lostCard = (name: string, post: { channelId: string } | null): boolean => lost(name) || (post !== null && post.channelId === ctx.timeoutChannel)
+  /** The dedicated "Post to Discord" of an existing item: nothing is created or changed. */
+  const postCard = (guildId: string, name: string, input: { channelId: string; pingRoleIds?: string[] | undefined }): IpcResult<CardPostResult> => {
+    const checked = cardCheck(guildId, input)
+    if ('error' in checked) return checked.error
+    if (checked.post === null) return failure('http', 'invalid_channel', 'channel_id is required.', 400)
+    if (/\bfail\b/i.test(name)) return failure('http', 'discord_error', 'Discord rejected the message.', 502) // Discord refused: nothing posted
+    const messageId = ctx.newMessageId()
+    ctx.liveMessages.add(messageId)
+    if (lostCard(name, checked.post)) return timeoutFailure() // posted, but the answer "got lost"
+    return { ok: true, data: { messageId, channelId: checked.post.channelId, pingedRoles: checked.post.pinged } }
+  }
+
   /** Writes of the commands need Manage Server or Administrator. */
   const manage = <T,>(guildId: string, game: string, run: (state: GameState) => IpcResult<T>): IpcResult<T> =>
     gate(guildId, game, (state) => (scenario === 'nomanage' ? refused('manage_server_required', 'You need the Manage Server permission, or Administrator, to do this.') : run(state)))
@@ -315,14 +358,17 @@ export function createRacingMock(ctx: F1MockContext): { api: RacingMockApi; role
       ),
 
     createRacingTeam: (guildId, game, input) =>
-      ctx.api<RacingTeamDetail>(() =>
+      ctx.api<WithCard<RacingTeamDetail>>(() =>
         manage(guildId, game, (state) => {
           if (scenario === 'nomanageroles') return refused('bot_missing_manage_roles', 'The bot needs the Manage Roles permission.')
+          const card = cardCheck(guildId, input)
+          if ('error' in card) return card.error // the whole post is checked first: a refusal creates nothing
           if (findTeam(state, input.name)) return failure('http', 'team_exists', `A team named '${input.name}' already exists (any capitalisation).`, 409)
           const created: TeamState = { name: input.name, color: input.color, focus: input.focus ?? '', roleId: roleId(), roleExists: true, roster: [], createdAt: new Date().toISOString() }
           state.teams.push(created)
-          if (lost(input.name)) return timeoutFailure() // created (with its role), but the answer "got lost"
-          return { ok: true, data: detailView(created) }
+          const answer = withCard(detailView(created), input.name, card.post)
+          if (lostCard(input.name, card.post)) return timeoutFailure() // created (with its role, and its card), but the answer "got lost"
+          return { ok: true, data: answer }
         })
       ),
 
@@ -398,10 +444,12 @@ export function createRacingMock(ctx: F1MockContext): { api: RacingMockApi; role
       ),
 
     logRacingResult: (guildId, game, input) =>
-      ctx.api<RacingResult>(() =>
+      ctx.api<WithCard<RacingResult>>(() =>
         manage(guildId, game, (state) => {
           const target = findTeam(state, input.team)
           if (!target) return notFound('team_not_found', `Team '${input.team}' was not found.`)
+          const card = cardCheck(guildId, input)
+          if ('error' in card) return card.error // the whole post is checked first: a refusal logs nothing
           const created: RacingResult = {
             id: `new-res-${state.results.length + 1}-${Date.now().toString(16)}`,
             eventName: input.eventName,
@@ -413,8 +461,9 @@ export function createRacingMock(ctx: F1MockContext): { api: RacingMockApi; role
             loggedAt: new Date().toISOString()
           }
           state.results.push(created) // the same result twice is two entries: the archive never checks for duplicates
-          if (lost(input.eventName)) return timeoutFailure() // appended, but the answer "got lost"
-          return { ok: true, data: { ...created } }
+          const answer = withCard({ ...created }, input.eventName, card.post)
+          if (lostCard(input.eventName, card.post)) return timeoutFailure() // appended (and posted), but the answer "got lost"
+          return { ok: true, data: answer }
         })
       ),
 
@@ -477,12 +526,39 @@ export function createRacingMock(ctx: F1MockContext): { api: RacingMockApi; role
       ),
 
     addRacingEvent: (guildId, game, input) =>
-      ctx.api<RacingEvent>(() =>
+      ctx.api<WithCard<RacingEvent>>(() =>
         manage(guildId, game, (state) => {
+          const card = cardCheck(guildId, input)
+          if ('error' in card) return card.error // the whole post is checked first: a refusal adds nothing
           const created = event(`new-${state.events.length + 1}-${Date.now().toString(16)}`, input.name, input.date, input.time, input.class ?? '', input.notes ?? '')
           state.events.push(created)
-          if (lost(input.name)) return timeoutFailure() // stored, but the answer "got lost"
-          return { ok: true, data: { ...created } }
+          const answer = withCard({ ...created }, input.name, card.post)
+          if (lostCard(input.name, card.post)) return timeoutFailure() // stored (and posted), but the answer "got lost"
+          return { ok: true, data: answer }
+        })
+      ),
+
+    postRacingTeam: (guildId, game, input) =>
+      ctx.api<CardPostResult>(() =>
+        manage(guildId, game, (state) => {
+          const found = findTeam(state, input.team)
+          return found ? postCard(guildId, found.name, input) : notFound('team_not_found', `Team '${input.team}' was not found.`)
+        })
+      ),
+
+    postRacingEvent: (guildId, game, input) =>
+      ctx.api<CardPostResult>(() =>
+        manage(guildId, game, (state) => {
+          const found = state.events.find((item) => item.id === input.id)
+          return found ? postCard(guildId, found.name, input) : notFound('event_not_found', 'That event was not found in this game.')
+        })
+      ),
+
+    postRacingResult: (guildId, game, input) =>
+      ctx.api<CardPostResult>(() =>
+        manage(guildId, game, (state) => {
+          const found = state.results.find((item) => item.id === input.id)
+          return found ? postCard(guildId, found.eventName, input) : notFound('result_not_found', 'That result was not found in this game.')
         })
       )
   }

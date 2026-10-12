@@ -16,7 +16,7 @@ export const MANAGE_SERVER_RULE =
 export const MANAGER_RULE = 'Creating an attendance post or an announcement needs Manage Server, Administrator, or being a Manager or Coach of one of THIS game\'s teams.'
 
 /** The wording for every refusal of the esports endpoints; anything else falls back to the generic texts. */
-export function describeRacingError(error: unknown, gameLabel: string): string {
+export function describeRacingError(error: unknown, gameLabel: string, effect = 'Nothing was posted.'): string {
   switch (errorCode(error)) {
     case 'manage_server_required':
       return MANAGE_SERVER_RULE
@@ -44,18 +44,25 @@ export function describeRacingError(error: unknown, gameLabel: string): string {
       return `That member is not in the server and is on no ${gameLabel} team.`
     case 'unknown_game':
       return 'That game has no esports team module.'
+    case 'event_not_found':
+      return 'That event no longer exists in this game. Refresh the list. Nothing was posted.'
+    case 'result_not_found':
+      return "That result is no longer in this game's archive. Refresh the list. Nothing was posted."
+    case 'invalid_event_id':
+    case 'invalid_result_id':
+      return 'That entry has no usable id, so its card cannot be posted. Nothing was posted.'
     case 'invalid_ping_roles':
-      return 'The roles to ping were not accepted. Remove them and pick them again from the list. Nothing was posted.'
+      return `The roles to ping were not accepted. Remove them and pick them again from the list. ${effect}`
     case 'too_many_ping_roles':
-      return 'A post can ping at most 3 roles. Remove one and try again. Nothing was posted.'
+      return `A post can ping at most 3 roles. Remove one and try again. ${effect}`
     case 'role_not_found':
-      return 'One of the roles to ping no longer exists in this server. The list was refreshed: remove that role and pick again. Nothing was posted.'
+      return `One of the roles to ping no longer exists in this server. The list was refreshed: remove that role and pick again. ${effect}`
     case 'role_not_pingable':
-      return '@everyone and roles managed by a bot or integration cannot be pinged. Remove that role and pick another one. Nothing was posted.'
+      return `@everyone and roles managed by a bot or integration cannot be pinged. Remove that role and pick another one. ${effect}`
     case 'bot_cannot_mention_role':
-      return 'Discord would not ping that role. Make the role mentionable in Discord (Server Settings, Roles, "Allow anyone to @mention this role"), or give the Nexus role the Mention Everyone permission in that channel. Nothing was posted.'
+      return `Discord would not ping that role. Make the role mentionable in Discord (Server Settings, Roles, "Allow anyone to @mention this role"), or give the Nexus role the Mention Everyone permission in that channel. ${effect}`
     case 'rate_limited':
-      return 'Too many posts in a short time. Posts that ping roles are limited to 5 per minute for each person on each server. Wait a minute, then try again. Nothing was posted.'
+      return `Too many posts in a short time. Posts that ping roles are limited to 5 per minute for each person on each server. Wait a minute, then try again. ${effect}`
     default:
       return describeError(error)
   }
@@ -296,4 +303,50 @@ export function announcementLostText(pinged: boolean): string {
 /** The footer the message gets: "Posted via Nexus App by <name>", followed by the footer text of the server. */
 export function announcementFooter(name: string): string {
   return `Posted via Nexus App by ${name}`
+}
+
+// ── Cards of teams, events and results (milestone 6, part 2) ────────────────
+
+/**
+ * Added to the "may already be there" texts of a create when a card was asked for with it: the message may already be in the channel and
+ * may already have pinged people, and a second send would post it twice.
+ */
+export const CARD_LOST_TEXT = 'You also asked for the card to be posted, so the message may already be in the channel (and may already have pinged people). Check the channel first, and do not post it again until you have.'
+
+/** The text of a lost answer on a create: what may exist, plus the card caveat when a card was asked for. */
+export function createLostText(base: string, posting: boolean): string {
+  return posting ? `${base} ${CARD_LOST_TEXT}` : base
+}
+
+/** A card posted to a channel with an existing item that nobody can look up again: after a lost answer only the channel tells. */
+export const CARD_POST_LOST_TEXT =
+  'Nexus did not get a clear answer, so the card may already be in the channel and may already have pinged people. It is not sent again with the same data, because that would post it twice. Look at the channel in Discord first.'
+
+/** The reason a card could not be posted after the item was saved (`post_error`) or when posting an existing item, in plain words. */
+export function describeCardError(code: string): string {
+  switch (code) {
+    case 'bot_timeout':
+      return 'Discord did not answer in time, so the card may already be in the channel. Look at the channel before you post it again.'
+    case 'discord_error':
+      return 'Discord rejected the message.'
+    case 'bot_cannot_send':
+      return 'Nexus is not allowed to post in that channel: it needs View Channel, Send Messages and Embed Links there.'
+    case 'channel_not_found':
+      return 'The channel no longer exists.'
+    case 'forbidden':
+      return 'Your account cannot see that channel.'
+    case 'bot_cannot_mention_role':
+      return 'Discord would not ping that role. Make the role mentionable, or give the Nexus role the Mention Everyone permission in that channel.'
+    case 'role_not_found':
+      return 'One of the roles to ping no longer exists.'
+    case 'role_not_pingable':
+      return '@everyone and roles managed by a bot cannot be pinged.'
+    default:
+      return `The post failed (${code.slice(0, 40)}).`
+  }
+}
+
+/** True when a failed card may nevertheless be in the channel (Discord did not answer): the user must look before posting again. */
+export function cardMayBeThere(code: string): boolean {
+  return code === 'bot_timeout'
 }

@@ -29,7 +29,7 @@ import {
   parseSignupStatus
 } from '../shared/attendanceInputs'
 import { IPC } from '../shared/ipc'
-import { parseRacingAnnouncementInput, parseRacingAttendanceInput, parseRacingEventInput, parseRacingGame, parseRacingPage, parseRacingResultInput, parseRacingResultQuery, parseRacingTeamInput, parseRacingTeamName, parseRacingUserId, parseRosterAddInput } from '../shared/racingInputs'
+import { parseRacingAnnouncementInput, parseRacingAttendanceInput, parseRacingEventInput, parseRacingEventPostInput, parseRacingResultPostInput, parseRacingTeamPostInput, parseRacingGame, parseRacingPage, parseRacingResultInput, parseRacingResultQuery, parseRacingTeamInput, parseRacingTeamName, parseRacingUserId, parseRosterAddInput } from '../shared/racingInputs'
 import {
   parseAdvanceInput,
   parseBanInput,
@@ -291,6 +291,9 @@ export function registerIpc(deps: IpcDeps): void {
   handle(IPC.apiRacingResults, (guildId, game, query) => racing(guildId, game, (id, g) => deps.api.racingResults(id, g, valid(parseRacingResultQuery(query)))))
   handle(IPC.apiRacingAttendance, (guildId, game, page) => racing(guildId, game, (id, g) => deps.api.racingAttendance(id, g, valid(parseRacingPage(page)))))
   handle(IPC.apiRacingAttendancePost, (guildId, game, messageId) => racing(guildId, game, (id, g) => deps.api.racingAttendancePost(id, g, valid(parseMessageId(messageId)))))
+  handle(IPC.apiRacingTeamPost, (guildId, game, input) => racing(guildId, game, (id, g) => deps.api.postRacingTeam(id, g, valid(parseRacingTeamPostInput(input)))))
+  handle(IPC.apiRacingEventPost, (guildId, game, input) => racing(guildId, game, (id, g) => deps.api.postRacingEvent(id, g, valid(parseRacingEventPostInput(input)))))
+  handle(IPC.apiRacingResultPost, (guildId, game, input) => racing(guildId, game, (id, g) => deps.api.postRacingResult(id, g, valid(parseRacingResultPostInput(input)))))
   handle(IPC.apiRacingTeamRoles, (guildId, game) => racing(guildId, game, (id, g) => deps.api.racingTeamRoles(id, g)))
   handle(IPC.apiRacingAttendanceCreate, (guildId, game, input) => racing(guildId, game, (id, g) => deps.api.createRacingAttendance(id, g, valid(parseRacingAttendanceInput(input)))))
   handle(IPC.apiRacingAnnouncement, (guildId, game, input) => racing(guildId, game, (id, g) => deps.api.postRacingAnnouncement(id, g, valid(parseRacingAnnouncementInput(input)))))
