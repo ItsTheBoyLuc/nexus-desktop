@@ -9,7 +9,7 @@ bot's Flask app. This file is the contract: **every registered route is listed h
 **M3 — Reports, penalty points, bans, dirty drivers** (plus a results ledger and the points-system defaults) and
 **M4 — Attendance (divisions and posts) and sign-ups (questions, panels, participants)** and
 **M5 — Esports teams for the five `/racing` games (teams, roster, events, results archive, attendance, announcements)** and
-**M6 (part 1) — optional channel and role pings for the esports attendance post and announcement, team-role picker, role member counts**.
+**M6 — optional channel posting and role pings for the esports features (attendance, announcement, team / event / result cards), team-role picker, role member counts**.
 
 Contents: [Conventions](#conventions) · [Auth](#auth) · [Base](#base-endpoints) · [Pickers](#pickers) ·
 [Overview](#overview) · [Server settings](#server-settings) · [Games & tiers](#games--tiers) · [F1 league](#f1-league) ·
@@ -90,8 +90,11 @@ store as `{ts, user_id, username, guild_id, action, detail}`. Actions: `announce
 `f1.team.create`, `f1.driver.add|remove`, `f1.results.record`, `f1.points_system.update`, `f1.report.decide`,
 `f1.penalty_settings.update`, `f1.penalty.add|clear|ban_give|ban_remove|advance_race`, `f1.dirty_driver.report|remove_report`,
 `attendance.division.update`, `attendance.post.create`, `signup.questions.update`, `signup.create`, `signup.close`, `signup.participant.remove`,
-`esports.team.create`, `esports.roster.add|remove`, `esports.event.add`, `esports.result.log`, `esports.attendance.create`, `esports.announcement.post`.
-The two esports posting entries also carry `ping_role_ids` (the roles pinged, `[]` for none) in `detail` (M6).
+`esports.team.create`, `esports.roster.add|remove`, `esports.event.add`, `esports.result.log`, `esports.attendance.create`, `esports.announcement.post`,
+`esports.team.post`, `esports.event.post`, `esports.result.post`.
+Every esports post entry (`esports.attendance.create`, `esports.announcement.post`, `esports.{team|event|result}.post`) carries `game`, `channel_id`, `message_id` and `ping_role_ids`
+(the roles pinged, `[]` for none) in `detail` (M6). A card posted together with a create (`channel_id` on the create endpoint) is logged as its own `esports.*.post` entry next to the create entry;
+a post that failed has no `.post` entry.
 
 ---
 
@@ -1293,7 +1296,9 @@ Sorted by name. `role_exists` is false when the Discord role was deleted. No bod
 Request: `{ "name": "Apex Racing", "color": "#1E41FF", "focus": "Hypercar" }` — `name` 1–50 (single line), `color` exactly `#RRGGBB`, `focus` optional free text ≤ 30.
 The bot's **Manage Roles** permission is checked first. A duplicate name (any case) is refused *before* a role is made; if a duplicate shows up between that check and the save, or the save fails,
 the new role is deleted again (rollback). Response `201`: `{ "game", "team": { …with roster… } }`.
-Errors: `400 invalid_name | invalid_color | invalid_focus`, `403 manage_server_required | bot_missing_manage_roles`, `409 team_exists`, `502 discord_error`, `504 bot_timeout`.
+**M6:** optional `channel_id` + `ping_role_ids` post the new team's card too — see [Posting a card with a create](#posting-a-card-together-with-a-create-m6); the response gains `post` or `post_error`.
+Errors: `400 invalid_name | invalid_color | invalid_focus | invalid_channel | invalid_ping_roles | too_many_ping_roles`, `403 manage_server_required | bot_missing_manage_roles | bot_cannot_send | forbidden | role_not_pingable | bot_cannot_mention_role`,
+`404 channel_not_found | role_not_found`, `409 team_exists`, `429 rate_limited`, `502 discord_error`, `504 bot_timeout`.
 
 ### POST /guilds/{guild_id}/racing/{game}/roster
 
@@ -1348,7 +1353,9 @@ Query: `limit` (1–100, default 25), `offset`.
 `/racing {game} event-add`. Needs **Manage Server or Administrator**.
 Request: `{ "name": "Daytona 24", "date": "2026-09-14", "time": "20:00 UTC", "class": "GT3", "notes": "…" }` — `name` 1–100, `date` 1–20, `time` 1–20 (both free text, like the command),
 `class` optional free text ≤ 30 (stored as `class` for lmu and `series` for the other games), `notes` optional ≤ 300. Response `201`: `{ "game", "event": { … } }`.
-Errors: `400 invalid_name | invalid_date | invalid_time | invalid_class | invalid_notes`, `403 manage_server_required`.
+**M6:** optional `channel_id` + `ping_role_ids` post the event's card too — see [Posting a card with a create](#posting-a-card-together-with-a-create-m6); the response gains `post` or `post_error`.
+Errors: `400 invalid_name | invalid_date | invalid_time | invalid_class | invalid_notes | invalid_channel | invalid_ping_roles | too_many_ping_roles`, `403 manage_server_required | bot_cannot_send | forbidden | role_not_pingable | bot_cannot_mention_role`,
+`404 channel_not_found | role_not_found`, `429 rate_limited`.
 
 ### Results archive
 
@@ -1365,7 +1372,10 @@ Errors: `400 invalid_team | invalid_limit | invalid_offset`, `404 team_not_found
 
 `/racing {game} results-log`. Needs **Manage Server or Administrator**.
 Request: `{ "team": "Apex Racing", "event_name": "Daytona 24", "result": "P3 in GT3", "drivers": "alice, bob", "notes": "…" }` — `event_name` 1–100, `result` 1–100, `drivers` 1–200 (free text, as typed in the command),
-`notes` optional ≤ 300. Response `201`: `{ "game", "result": { … } }`. Errors: `400 invalid_team | invalid_event_name | invalid_result | invalid_drivers | invalid_notes`, `403 manage_server_required`, `404 team_not_found`.
+`notes` optional ≤ 300. Response `201`: `{ "game", "result": { … } }`.
+**M6:** optional `channel_id` + `ping_role_ids` post the result's card too — see [Posting a card with a create](#posting-a-card-together-with-a-create-m6); the response gains `post` or `post_error`.
+Errors: `400 invalid_team | invalid_event_name | invalid_result | invalid_drivers | invalid_notes | invalid_channel | invalid_ping_roles | too_many_ping_roles`,
+`403 manage_server_required | bot_cannot_send | forbidden | role_not_pingable | bot_cannot_mention_role`, `404 team_not_found | channel_not_found | role_not_found`, `429 rate_limited`.
 
 ### Attendance
 
@@ -1405,9 +1415,9 @@ Errors: `400 invalid_title | invalid_message | invalid_channel | invalid_image_u
 
 ### Posting to a channel, with optional role pings (M6)
 
-**Part 1 (this version): the attendance post and the announcement.** Teams, events and results follow in part 2 — nothing for them is documented or available yet.
+Everything that can post to Discord from the esports features shares one rule set: the attendance post, the announcement, and the team / event / result cards (below). A post can ping roles; nothing else can ever be pinged.
 
-`POST …/attendance` and `POST …/announcement` accept one new, optional field:
+`POST …/attendance` and `POST …/announcement` accept one new, optional field (the card endpoints take the same field, see further down):
 
 | Field | Type | Meaning |
 |---|---|---|
@@ -1446,7 +1456,7 @@ Posts without `ping_role_ids` are not counted. A request refused for any of the 
 
 **If posting fails.** For the attendance post and the announcement the post *is* the item (the attendance record is keyed by the message ID; an announcement stores nothing), so a failed post is an error response (`403 bot_cannot_send`, `502 discord_error`, `504 bot_timeout`, …) and **nothing is stored**.
 The server never retries a post by itself. If the attendance record cannot be saved after the message was sent, the message is deleted again (members who were pinged keep the notification they already got; that cannot be undone).
-The `post_error` field (stored item plus a failed post, so the app can offer "Post again") belongs to the endpoints whose item exists independently of a post — they arrive in part 2.
+The `post_error` field (stored item plus a failed post, so the app can offer "Post again") belongs to the endpoints whose item exists independently of a post: the three create endpoints below.
 
 **Edits never ping again.** The Available / Not Available buttons re-render the post by editing it with the embed and the view only, never the message content and never `allowed_mentions`. A role ping is therefore sent once, when the post is created, and survives every later toggle without notifying anyone again.
 
@@ -1461,6 +1471,54 @@ The Discord role of every team of this game — the picker for `ping_role_ids`. 
 ```
 
 `name` is the role's current name. `mentionable: false` means the post will be refused with `bot_cannot_mention_role` unless the bot may mention everyone in the target channel, so the app can warn up front. Errors: only the standard ones and `404 unknown_game`.
+
+### Posting a card together with a create (M6)
+
+`POST …/teams`, `POST …/events` and `POST …/results` accept two more optional fields next to their own:
+
+| Field | Meaning |
+|---|---|
+| `channel_id` | Text channel to post the new item's card in. Absent or `null` = **do not post; the request and response are exactly what they were before**. |
+| `ping_role_ids` | Roles to ping with the card (same rules, limits and errors as above). Without a `channel_id` this is `400 invalid_channel` — it is never silently ignored. |
+
+**Order of events.** The permission (Manage Server or Administrator, unchanged), the body, and **the whole post** (channel, roles, ping rate limit) are checked first. If any of that is refused, the response is that error and **nothing is created**
+(no team role, no stored item, no message). Only then is the item created, exactly as without posting, and the card is posted.
+
+**If the post then fails** (Discord error, timeout, the bot lost access in between) the item is **kept — nothing is rolled back, the team role is not deleted** — and the response is the normal `201` plus `post_error`:
+
+```json
+{ "game": "gt7", "event": { … }, "post_error": { "error": "discord_error", "message": "Discord rejected the message." } }
+```
+
+When it worked the response has `"post": { "channel_id", "message_id", "pinged_roles": [ { "id", "name" } ] }` instead. Exactly one of `post` / `post_error` is present when `channel_id` was sent, neither otherwise.
+The server **never retries** a post. After a `post_error` the app offers "Post again", which calls the dedicated endpoint below with the item's identifier; that endpoint never creates or changes anything.
+
+### POST /guilds/{guild_id}/racing/{game}/teams/post
+
+App-only (no command posts a team card). Posts the card of an **existing** team: colour, class / category focus, its Discord role and the roster (same fields as `roster-info`, escaped names, server colour,
+footer `Posted via Nexus App by {name} · Nexus Racing · {game}`). Changes **no stored data**. Needs **Manage Server or Administrator** (the permission for creating a team), `403 manage_server_required` otherwise.
+
+Request: `{ "team": "Apex Racing", "channel_id": "777…", "ping_role_ids": ["820…"] }` — a team has **no id other than its name**, so it is identified by `team` (1–50, matched case-insensitively like everywhere else). `channel_id` is required, `ping_role_ids` optional.
+Response `201`: `{ "ok": true, "game", "team": "Apex Racing", "message_id", "channel_id", "pinged_roles": [ … ] }`.
+A team whose role was deleted still posts (the role field reads *deleted*). Roster members still in the server are shown as mentions inside the embed (an embed never notifies anyone); members who left show their stored name.
+Errors: `400 invalid_team | invalid_channel | invalid_ping_roles | too_many_ping_roles`, `403 manage_server_required | bot_cannot_send | forbidden | role_not_pingable | bot_cannot_mention_role`,
+`404 team_not_found | channel_not_found | role_not_found`, `429 rate_limited`, `502 discord_error`, `504 bot_timeout`. Any failure is an error response (there is no item to keep).
+
+### POST /guilds/{guild_id}/racing/{game}/events/post
+
+App-only. Posts the card of an **existing** event (name, date, time, class / series, notes). Changes no stored data. Needs **Manage Server or Administrator**.
+Request: `{ "id": "a1b2c3d4e5f6", "channel_id": "777…", "ping_role_ids": [ … ] }` — `id` is the event's `id` from `GET …/events` (1–64 characters). Response `201`: `{ "ok": true, "game", "event_id", "message_id", "channel_id", "pinged_roles": [ … ] }`.
+Errors: `400 invalid_event_id | invalid_channel | invalid_ping_roles | too_many_ping_roles`, `403 manage_server_required | bot_cannot_send | forbidden | role_not_pingable | bot_cannot_mention_role`,
+`404 event_not_found | channel_not_found | role_not_found` (an event of another game is not found), `429 rate_limited`, `502 discord_error`, `504 bot_timeout`.
+
+### POST /guilds/{guild_id}/racing/{game}/results/post
+
+App-only. Posts the card of an **existing** archived result (event, result, team, drivers, notes; still an archive entry, not a calculated standing). Changes no stored data. Needs **Manage Server or Administrator**.
+Request: `{ "id": "a1b2c3d4e5f6", "channel_id": "777…", "ping_role_ids": [ … ] }` — `id` is the result's `id` from `GET …/results`. Response `201`: `{ "ok": true, "game", "result_id", "message_id", "channel_id", "pinged_roles": [ … ] }`.
+Errors: `400 invalid_result_id | invalid_channel | invalid_ping_roles | too_many_ping_roles`, `403 manage_server_required | bot_cannot_send | forbidden | role_not_pingable | bot_cannot_mention_role`,
+`404 result_not_found | channel_not_found | role_not_found`, `429 rate_limited`, `502 discord_error`, `504 bot_timeout`.
+
+Events and results created before ids existed would have none and could not be found by these endpoints; every event and result the command or the API has written has an `id`.
 
 ### Things that cannot be done through the API (M5)
 
