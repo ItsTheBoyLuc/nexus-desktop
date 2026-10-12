@@ -1,9 +1,10 @@
-import { Plus, RotateCw, Trophy } from 'lucide-react'
+import { Plus, RotateCw, Send, Trophy } from 'lucide-react'
 import { useCallback, useState } from 'react'
 import { RACING_LIMITS, validateRacingResultDraft } from '../../shared/racingValidation'
 import type { RacingResultField } from '../../shared/racingValidation'
-import type { RacingResult } from '../../shared/types'
-import { Button, EmptyState, ErrorState, LoadingRegion, Modal, Notice, PageHeader, Select, Skeleton, SortHeader, Stagger, TextField, useToast } from '../components'
+import type { CardOutcome, RacingResult } from '../../shared/types'
+import { Button, EmptyState, ErrorState, LoadingRegion, Modal, Notice, PageHeader, PostConfirmDialog, PostTargetSection, Select, Skeleton, SortHeader, Stagger, TextField, useToast } from '../components'
+import { usePostTarget } from '../hooks/postTarget'
 import { useRacingTeams } from '../hooks/data'
 import { usePagedList } from '../hooks/paged'
 import { useManageDenied } from '../hooks/useFiaDenied'
@@ -12,6 +13,7 @@ import { describeError, errorCode, fieldErrorFor, unwrap } from '../lib/errors'
 import { formatWhen, plural } from '../lib/format'
 import { invalidateRacing, racingKey } from '../lib/racingScope'
 import {
+  createLostText,
   describeRacingError,
   describeResultCount,
   MANAGE_SERVER_RULE,
@@ -28,8 +30,46 @@ import { matchesQuery, nextSort, sortRows } from '../lib/tableView'
 import type { SortState } from '../lib/tableView'
 import { EsportsNote, useEsports } from './EsportsRoute'
 import type { EsportsContext } from './EsportsRoute'
+import { CardOutcomeDialog, PostToDiscordDialog } from './CardPostDialogs'
 
 const PAGE = 100
+
+/** What a result card shows: the entry as the archive keeps it. Untrusted text, shown as plain text only. */
+function ResultFacts({ team, eventName, result, drivers, notes }: { team: string; eventName: string; result: string; drivers: string; notes?: string | undefined }) {
+  return (
+    <dl className="facts facts--grid">
+      <div>
+        <dt>Team</dt>
+        <dd className="plain-text">{team}</dd>
+      </div>
+      <div>
+        <dt>Event</dt>
+        <dd className="plain-text">{eventName}</dd>
+      </div>
+      <div>
+        <dt>Result</dt>
+        <dd className="plain-text">{result}</dd>
+      </div>
+      <div>
+        <dt>Drivers involved</dt>
+        <dd className="plain-text">{drivers}</dd>
+      </div>
+      {notes ? (
+        <div className="facts__wide">
+          <dt>Notes</dt>
+          <dd className="plain-text">{notes}</dd>
+        </div>
+      ) : null}
+    </dl>
+  )
+}
+
+/** The entry as it was just logged, for the card follow-up. */
+interface ResultLogged {
+  entry: RacingResult
+  card: CardOutcome
+  requested: { channelId: string; pingRoleIds?: string[] }
+}
 
 // ── Log a result ────────────────────────────────────────────────────────────
 
@@ -40,10 +80,12 @@ const SERVER_FIELDS = { invalid_team: 'team', invalid_event_name: 'eventName', i
  * that says logging the same result twice creates two entries. The write goes out once. After a lost answer the form is
  * locked: the only way forward is "Refresh results", never a second send with the same data.
  */
-function LogResultDialog({ ctx, teams, defaultTeam, onClose }: { ctx: EsportsContext; teams: readonly string[]; defaultTeam: string; onClose: () => void }) {
+function LogResultDialog({ ctx, teams, defaultTeam, onClose, onLogged }: { ctx: EsportsContext; teams: readonly string[]; defaultTeam: string; onClose: () => void; onLogged: (logged: ResultLogged) => void }) {
   const toast = useToast()
   const write = useWriteAction()
   const manage = useManageDenied(ctx.guild.id)
+  const target = usePostTarget(ctx.guild.id, ctx.game)
+  const posting = target.enabled
   const [draft, setDraft] = useState({ team: defaultTeam, eventName: '', result: '', drivers: '', notes: '' })
   const [step, setStep] = useState<'edit' | 'confirm'>('edit')
   const [submitted, setSubmitted] = useState(false)
@@ -62,7 +104,7 @@ function LogResultDialog({ ctx, teams, defaultTeam, onClose }: { ctx: EsportsCon
 
   const review = (): void => {
     setSubmitted(true)
-    if (result.ok && !manage.denied && !lost) setStep('confirm')
+    if (result.ok && !manage.denied && !lost && target.problem === null) setStep('confirm')
   }
 
   const refresh = (): void => {
@@ -71,17 +113,20 @@ function LogResultDialog({ ctx, teams, defaultTeam, onClose }: { ctx: EsportsCon
   }
 
   const submit = async (): Promise<void> => {
-    if (!result.ok || lost || manage.denied) return
-    const outcome = await write.run(() => unwrap(window.nexus.api.logRacingResult(ctx.guild.id, ctx.game, result.value)))
+    if (!result.ok || lost || manage.denied || target.problem !== null) return
+    const input = { ...result.value, ...target.fields }
+    const outcome = await write.run(() => unwrap(window.nexus.api.logRacingResult(ctx.guild.id, ctx.game, input)))
     if (!outcome) return
     if (outcome.ok) {
       invalidateRacing(ctx.guild.id, ctx.game)
-      toast.push({ tone: 'success', title: 'Result logged', message: `${outcome.value.teamName}: ${outcome.value.result} at ${outcome.value.eventName}` })
-      onClose()
+      const { card, ...entry } = outcome.value
+      toast.push({ tone: 'success', title: 'Result logged', message: `${entry.teamName}: ${entry.result} at ${entry.eventName}` })
+      if (card !== undefined && input.channelId !== undefined) onLogged({ entry, card, requested: { channelId: input.channelId, ...(input.pingRoleIds ? { pingRoleIds: input.pingRoleIds } : {}) } })
+      else onClose()
       return
     }
     const error = outcome.error
-    const verdict = judgeWrite(error, 'result')
+    const verdict = judgeWrite(error, 'result', posting)
     if (verdict.type === 'lost') {
       // The entry may be in the archive already: lock the form, read the archive again, never offer the same data for sending.
       invalidateRacing(ctx.guild.id, ctx.game)
@@ -93,15 +138,20 @@ function LogResultDialog({ ctx, teams, defaultTeam, onClose }: { ctx: EsportsCon
       manage.markDenied()
       return
     }
+    // A refusal about the card logs nothing: the entry does not exist.
+    if (target.explainRefusal(error, verdict, ctx.gameLabel, 'Nothing was logged or posted.')) return
     const field = fieldErrorFor(error, SERVER_FIELDS)
     if (field) setServerErrors({ [field.field]: describeError(error) })
-    else setProblem(describeRacingError(error, ctx.gameLabel))
+    else setProblem(describeRacingError(error, ctx.gameLabel, 'Nothing was logged or posted.'))
   }
 
   const confirming = step === 'confirm' && result.ok && !lost
+  // With a card the confirmation is the shared one (it names the channel and the roles); without one it stays inside this dialog.
+  const confirmingPost = confirming && posting
   return (
+    <>
     <Modal
-      open
+      open={!confirmingPost}
       title={confirming ? `Log this ${ctx.gameLabel} result?` : `Log a ${ctx.gameLabel} result`}
       size="lg"
       dismissible={!write.busy}
@@ -139,37 +189,14 @@ function LogResultDialog({ ctx, teams, defaultTeam, onClose }: { ctx: EsportsCon
     >
       {lost ? (
         <Notice tone="danger">
-          <strong>The result may already be logged.</strong> {RESULT_LOST_TEXT}
+          <strong>The result may already be logged.</strong> {createLostText(RESULT_LOST_TEXT, posting)}
         </Notice>
       ) : null}
 
       {confirming ? (
         <>
           <Notice tone="warning">{RESULT_TWICE_WARNING} {RESULTS_APPEND_ONLY_TEXT}</Notice>
-          <dl className="facts facts--grid">
-            <div>
-              <dt>Team</dt>
-              <dd className="plain-text">{result.value.team}</dd>
-            </div>
-            <div>
-              <dt>Event</dt>
-              <dd className="plain-text">{result.value.eventName}</dd>
-            </div>
-            <div>
-              <dt>Result</dt>
-              <dd className="plain-text">{result.value.result}</dd>
-            </div>
-            <div>
-              <dt>Drivers involved</dt>
-              <dd className="plain-text">{result.value.drivers}</dd>
-            </div>
-            {result.value.notes ? (
-              <div>
-                <dt>Notes</dt>
-                <dd className="plain-text">{result.value.notes}</dd>
-              </div>
-            ) : null}
-          </dl>
+          <ResultFacts team={result.value.team} eventName={result.value.eventName} result={result.value.result} drivers={result.value.drivers} notes={result.value.notes} />
         </>
       ) : lost ? null : (
         <>
@@ -185,10 +212,27 @@ function LogResultDialog({ ctx, teams, defaultTeam, onClose }: { ctx: EsportsCon
           <TextField label="Result" value={draft.result} maxLength={RACING_LIMITS.resultMax} placeholder="P3 in GT3" hint="Free text, up to 100 characters." error={show('result')} autoComplete="off" onChange={(event) => change('result', event.target.value)} />
           <TextField label="Drivers involved" value={draft.drivers} maxLength={RACING_LIMITS.driversMax} placeholder="alice, bob" hint="Free text, as you would type it in the command (up to 200 characters)." error={show('drivers')} autoComplete="off" onChange={(event) => change('drivers', event.target.value)} />
           <TextField multiline label="Notes" optional rows={3} value={draft.notes} maxLength={RACING_LIMITS.notesMax} error={show('notes')} onChange={(event) => change('notes', event.target.value)} />
+          <PostTargetSection target={target} guildId={ctx.guild.id} gameLabel={ctx.gameLabel} what="the result card" disabled={write.busy} showProblem={submitted} />
           {problem ? <Notice tone="danger">{problem}</Notice> : null}
         </>
       )}
     </Modal>
+    <PostConfirmDialog
+      open={confirmingPost}
+      title={`Log this ${ctx.gameLabel} result and post its card?`}
+      channelLabel={`#${target.channelName(target.channelId) || 'the channel you chose'}`}
+      guildName={ctx.guild.name}
+      roles={target.pingViews}
+      confirmLabel="Log and post"
+      busy={write.busy}
+      onConfirm={() => void submit()}
+      onCancel={() => setStep('edit')}
+    >
+      <Notice tone="warning">{RESULT_TWICE_WARNING} {RESULTS_APPEND_ONLY_TEXT}</Notice>
+      {result.ok ? <ResultFacts team={result.value.team} eventName={result.value.eventName} result={result.value.result} drivers={result.value.drivers} notes={result.value.notes} /> : null}
+      <p className="muted">The result is logged, then its card is posted. If the post fails the result stays in the archive and you can post it again from the list.</p>
+    </PostConfirmDialog>
+    </>
   )
 }
 
@@ -198,6 +242,8 @@ function ResultsScreen({ ctx }: { ctx: EsportsContext }) {
   const teams = useRacingTeams(ctx.guild.id, ctx.game)
   const manage = useManageDenied(ctx.guild.id)
   const [logging, setLogging] = useState(false)
+  const [posting, setPosting] = useState<RacingResult | null>(null)
+  const [followUp, setFollowUp] = useState<ResultLogged | null>(null)
   const [team, setTeam] = useState('') // '' = every team; otherwise the team stats of that one team
   const [query, setQuery] = useState('')
   const [sort, setSort] = useState<SortState<ResultColumn> | null>(null) // the API's order: oldest first
@@ -298,12 +344,15 @@ function ResultsScreen({ ctx }: { ctx: EsportsContext }) {
                   <SortHeader label="Team" column="team" sort={sort} onSort={onSort} />
                   <SortHeader label="Result" column="result" sort={sort} onSort={onSort} />
                   <th scope="col">Drivers</th>
+                  <th scope="col">
+                    <span className="sr-only">Actions</span>
+                  </th>
                 </tr>
               </thead>
               <Stagger as="tbody">
                 {rows.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="table__empty">
+                    <td colSpan={6} className="table__empty">
                       No loaded result matches your search.
                     </td>
                   </tr>
@@ -318,6 +367,11 @@ function ResultsScreen({ ctx }: { ctx: EsportsContext }) {
                     <td className="plain-text">{entry.teamName}</td>
                     <td className="plain-text">{entry.result}</td>
                     <td className="plain-text">{entry.drivers}</td>
+                    <td>
+                      <div className="row-actions">
+                        <Button variant="ghost" size="sm" iconOnly disabled={manage.denied} icon={<Send size={16} aria-hidden="true" />} aria-label={`Post the card of the result at ${entry.eventName} to Discord`} title={manage.denied ? 'Needs the Manage Server permission' : 'Post to Discord'} onClick={() => setPosting(entry)} />
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </Stagger>
@@ -338,7 +392,40 @@ function ResultsScreen({ ctx }: { ctx: EsportsContext }) {
         </div>
       ) : null}
 
-      {logging ? <LogResultDialog ctx={ctx} teams={teamNames} defaultTeam={team} onClose={() => setLogging(false)} /> : null}
+      {logging ? (
+        <LogResultDialog
+          ctx={ctx}
+          teams={teamNames}
+          defaultTeam={team}
+          onClose={() => setLogging(false)}
+          onLogged={(logged) => {
+            setLogging(false)
+            setFollowUp(logged)
+          }}
+        />
+      ) : null}
+      {posting ? (
+        <PostToDiscordDialog
+          ctx={ctx}
+          title={`Post the card of the result at ${posting.eventName}`}
+          subject={`the card of the result at ${posting.eventName}`}
+          summary={<ResultFacts team={posting.teamName} eventName={posting.eventName} result={posting.result} drivers={posting.drivers} notes={posting.notes} />}
+          send={(card) => unwrap(window.nexus.api.postRacingResult(ctx.guild.id, ctx.game, { id: posting.id, ...card }))}
+          onClose={() => setPosting(null)}
+        />
+      ) : null}
+      {followUp ? (
+        <CardOutcomeDialog
+          ctx={ctx}
+          kind="result"
+          itemName={followUp.entry.eventName}
+          card={followUp.card}
+          requested={followUp.requested}
+          summary={<ResultFacts team={followUp.entry.teamName} eventName={followUp.entry.eventName} result={followUp.entry.result} drivers={followUp.entry.drivers} notes={followUp.entry.notes} />}
+          send={(card) => unwrap(window.nexus.api.postRacingResult(ctx.guild.id, ctx.game, { id: followUp.entry.id, ...card }))}
+          onClose={() => setFollowUp(null)}
+        />
+      ) : null}
     </div>
   )
 }
