@@ -165,6 +165,40 @@ file, a log, a cache or browser storage, cleared when the screen is left or the 
 screen is keyed by server and game and sends the game with every call. The mock's names are obviously fake (*Fake Team
 Alpha*, *Fake Driver 007*).
 
+### Role pings on esports posts (milestone 6, part 1)
+
+The **Attendance** create dialog and the **Announcement** screen of the Esports team can ping up to 3 roles with the
+post. The channel stays required on both (there is no on/off switch); only the "Ping roles" section is optional.
+Teams, Events and Results follow in part 2.
+
+- **Picker.** A searchable list of the server's roles with their member count ("12 members", "about 12 members" while the
+  bot's member cache is incomplete). `@everyone` and `@here` are never offered (and refused again in the main process and
+  the API client), bot-managed roles are not selectable, and a role that is not mentionable is offered with a warning.
+  **All {game} team roles** fills in the roles of the teams of that game (`GET /racing/{game}/team-roles`); with more
+  than 3 it stays off and says why instead of choosing for you.
+- **Confirmation before every post.** Names the channel and the roles with their counts, says *Pings notify members
+  immediately and cannot be undone.*, and has Cancel as the default focus. A role with more than 50 members (or a count
+  that may be higher, or unknown) keeps the confirm button off until a checkbox is ticked.
+- **Result dialog.** The channel, the message id and the roles the server says it pinged (`pinged_roles`), plus "Open in
+  Discord", built only from the ids of the answer.
+- **Errors in plain words**: `invalid_ping_roles`, `too_many_ping_roles`, `role_not_found`, `role_not_pingable`,
+  `bot_cannot_mention_role` (make the role mentionable, or give the bot Mention Everyone), the channel errors,
+  `manager_required` and `429` (5 pinging posts per minute per user and server: wait a minute). Part 1 has no
+  `post_error`: a failed post stored nothing.
+- **Never replayed.** A post is sent once. After a lost answer (timeout, dropped connection, 5xx) the form locks, the text says
+  the message may already be in Discord **and may already have pinged people**, and the only way forward is to check the
+  channel first. For an attendance post it adds: if the record could not be saved after a pinging message was sent, the message
+  is deleted, but members who were already pinged keep the notification.
+- **Remembered:** only the **last chosen channel id per server and game** (`postChannels` in the settings file, written by
+  the main process only). Never role ids, member data or message text. Chosen roles, the draft and every dialog are reset
+  when the server or the game changes (each screen is keyed by both).
+- **Mock.** `npm run dev:mock` has a role with 60 members, one that is not mentionable (pingable in
+  `#mention-everyone-ok`), one with an approximate count and one that is "gone" when posted; the scenarios `manyteamroles`,
+  `norolelist`, `invalidping`, `toomanyping`, `pingrefused`, `pinglimit` (and `lostracing`, `nomanager`, the `#timeout`,
+  `#bot-locked` and `#staff-only-hidden` channels, and *fail* in a name or title) cover each error and the lost answer. The
+  mock has a real 5-per-minute limiter. See the header of `src/renderer/mock/pingMock.ts`.
+
+
 ## Motion
 
 A small motion layer, pure CSS plus a tiny React helper, no animation library. All of it is in `src/renderer/theme/motion.css`, with the durations (150 / 220 / 320 ms, 40 ms stagger) and the easing as tokens in `theme/tokens.ts`. Only transform, opacity and stroke-dashoffset move (hover colour and shadow transitions aside; the one exception is the open and close of the sidebar groups).
@@ -178,7 +212,7 @@ A small motion layer, pure CSS plus a tiny React helper, no animation library. A
 | Command | What it does |
 | --- | --- |
 | `npm run dev` | Electron + hot reload (electron-vite dev) |
-| `npm run dev:mock` | Renderer only, in a normal browser (the port is printed, usually http://localhost:5174) with a **fake, stateful** bridge (no Discord login). Query `?scenario=signedout\|denied\|expired\|empty\|error\|slow\|nogames\|notadmin\|norounds\|nobotperms\|nofia\|lostresults` shows other states: `nogames` = no game enabled, `notadmin` = staff but not Administrator (settings are read-only, admin-level roles return `role_too_privileged`), `norounds` = no calendar yet, `nobotperms` = the bot lacks permissions, `nofia` = no FIA role (`fia_required`), `lostresults` = every results request loses its answer, `noledger` = the server's results ledger cannot be read (the local fallback is used), and for milestone 3 `noreports`, `nopenaltyconfig` (penalty rules never set up: `penalty_not_configured`), `nostaff` (every report, penalty and dirty-driver call answers 403), `lostdecisions` (every decision is applied, then its answer is lost) and `nodirty`, and for milestone 4 `nodivisions`, `nosignups`, `noconfirmperms` (`bot_cannot_post_confirmations`), `nomanagechannels` (`bot_missing_manage_channels`), `ambiguousconfirm` (`confirmation_channel_ambiguous`) and `lostcreates` (creating a post or a sign-up is applied, then its answer is lost; `notadmin` makes the questions read-only), and for milestone 5 `noracingteams`, `nomanage` (`manage_server_required`: no team, roster, event or result can be written), `nomanageroles` (`bot_missing_manage_roles`), `noresults` (every archive is empty), `noattendance` (no post anywhere), `nomanager` (`manager_required` for every game's attendance post and announcement) or `nomanager-gt7` (the same for ONE game: the rule is per game; use any of `lmu`, `iracing`, `gt7`, `acc`, `f1`) and `lostracing` (creating a team, adding an event, logging a result, creating an attendance post and posting an announcement are applied, then the answer is lost). Besides the scenario, a team, event, result event, post name or announcement title containing *timeout*, or the channel `#timeout`, loses its answer, and an announcement title containing *fail* is refused with `discord_error` (nothing posted). The sample data of "Apex Racing League" has 52 to 120 results in every game, a post with 24 drivers (one who left the server), 120+ posts in iRacing and 30 upcoming iRacing events; the unknown-game answer (`unknown_game`) is only reachable in the tests, because the app refuses an unknown game before it asks. The headers of `src/renderer/mock/installMock.ts`, `f1Mock.ts`, `stewardMock.ts`, `attendanceMock.ts` and `racingMock.ts` list the sample data and the hooks (60 reports in Midnight GT, a report decided in Discord meanwhile, a report whose thread is gone, a description containing *points-fail* or *timeout*, a driver one point below a ban threshold, the channels `#bot-locked` and `#staff-only-hidden`, a circuit named *late-duplicate*, ...). |
+| `npm run dev:mock` | Renderer only, in a normal browser (the port is printed, usually http://localhost:5174) with a **fake, stateful** bridge (no Discord login). Query `?scenario=signedout\|denied\|expired\|empty\|error\|slow\|nogames\|notadmin\|norounds\|nobotperms\|nofia\|lostresults` shows other states: `nogames` = no game enabled, `notadmin` = staff but not Administrator (settings are read-only, admin-level roles return `role_too_privileged`), `norounds` = no calendar yet, `nobotperms` = the bot lacks permissions, `nofia` = no FIA role (`fia_required`), `lostresults` = every results request loses its answer, `noledger` = the server's results ledger cannot be read (the local fallback is used), and for milestone 3 `noreports`, `nopenaltyconfig` (penalty rules never set up: `penalty_not_configured`), `nostaff` (every report, penalty and dirty-driver call answers 403), `lostdecisions` (every decision is applied, then its answer is lost) and `nodirty`, and for milestone 4 `nodivisions`, `nosignups`, `noconfirmperms` (`bot_cannot_post_confirmations`), `nomanagechannels` (`bot_missing_manage_channels`), `ambiguousconfirm` (`confirmation_channel_ambiguous`) and `lostcreates` (creating a post or a sign-up is applied, then its answer is lost; `notadmin` makes the questions read-only), and for milestone 5 `noracingteams`, `nomanage` (`manage_server_required`: no team, roster, event or result can be written), `nomanageroles` (`bot_missing_manage_roles`), `noresults` (every archive is empty), `noattendance` (no post anywhere), `nomanager` (`manager_required` for every game's attendance post and announcement) or `nomanager-gt7` (the same for ONE game: the rule is per game; use any of `lmu`, `iracing`, `gt7`, `acc`, `f1`) and `manyteamroles`, `norolelist`, `invalidping`, `toomanyping`, `pingrefused` and `pinglimit` (role pings, see milestone 6) and `lostracing` (creating a team, adding an event, logging a result, creating an attendance post and posting an announcement are applied, then the answer is lost). Besides the scenario, a team, event, result event, post name or announcement title containing *timeout*, or the channel `#timeout`, loses its answer, and an announcement title containing *fail* is refused with `discord_error` (nothing posted). The sample data of "Apex Racing League" has 52 to 120 results in every game, a post with 24 drivers (one who left the server), 120+ posts in iRacing and 30 upcoming iRacing events; the unknown-game answer (`unknown_game`) is only reachable in the tests, because the app refuses an unknown game before it asks. The headers of `src/renderer/mock/installMock.ts`, `f1Mock.ts`, `stewardMock.ts`, `attendanceMock.ts` and `racingMock.ts` list the sample data and the hooks (60 reports in Midnight GT, a report decided in Discord meanwhile, a report whose thread is gone, a description containing *points-fail* or *timeout*, a driver one point below a ban threshold, the channels `#bot-locked` and `#staff-only-hidden`, a circuit named *late-duplicate*, ...). |
 | `npm run typecheck` / `npm run lint` / `npm test` | tsc (strict), ESLint, Vitest |
 | `npm run build` | typecheck + bundle; fails if the mock flag is on or mock code is in `out/` |
 | `npm run dist` | `build` + Windows installer (NSIS) and portable `.exe` in `dist/` |
@@ -213,7 +247,8 @@ src/shared    Types, IPC channel names, CSP and the validation shared by both si
 - the **message id of every sign-up panel** it posted (`panels`),
 - the **message id of the calendar** it posted, per server (`calendarPosts`),
 - a **ledger of recorded races** (`ledger`: server, season, round, circuit, time), now only the fallback of the
-  server's own results ledger.
+  server's own results ledger,
+- the **last channel id chosen for the esports posts**, per server and game (`postChannels`): a channel id and nothing else.
 
 Only the main process writes them, and only after the API confirmed the outcome (`src/main/panelService.ts`,
 `src/main/f1Service.ts`); the renderer cannot add or wipe them, and a timeout, a lost answer or a refusal

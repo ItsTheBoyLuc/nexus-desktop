@@ -289,21 +289,25 @@ describe('the success check mark', () => {
   })
 
   it('is only drawn by success states: the success panels, success toasts and success notices', () => {
-    for (const name of ['Announcement', 'EsportsAnnouncement', 'ResultsForm']) expect(read(`src/renderer/screens/${name}.tsx`), name).toContain('<SuccessMark')
+    for (const name of ['Announcement', 'ResultsForm']) expect(read(`src/renderer/screens/${name}.tsx`), name).toContain('<SuccessMark')
+    // The esports posts show it in the shared result dialog (milestone 6), which only exists after a confirmed post.
+    expect(read('src/renderer/components/PostResultDialog.tsx')).toContain('<SuccessMark')
     expect(read('src/renderer/components/Toast.tsx')).toContain("item.tone === 'success' ? <SuccessMark")
     expect(read('src/renderer/components/Notice.tsx')).toContain("tone === 'success' ? <SuccessMark")
   })
 
   it('the announcement success panel is the "done" branch; the lost branch never draws it', () => {
-    for (const name of ['Announcement', 'EsportsAnnouncement']) {
-      const source = read(`src/renderer/screens/${name}.tsx`)
-      const mark = source.indexOf('<SuccessMark')
-      expect(source.slice(source.lastIndexOf("phase === 'done'", mark), mark), name).toContain("phase === 'done'")
-    }
+    const source = read('src/renderer/screens/Announcement.tsx')
+    const mark = source.indexOf('<SuccessMark')
+    expect(source.slice(source.lastIndexOf("phase === 'done'", mark), mark), 'Announcement').toContain("phase === 'done'")
     const esports = read('src/renderer/screens/EsportsAnnouncement.tsx')
     const lost = esports.indexOf("phase === 'lost' ? (")
     expect(lost).toBeGreaterThan(0)
     expect(esports.slice(lost, esports.indexOf('Discard this draft', lost))).not.toContain('SuccessMark')
+    // The result dialog (with the check mark) is only mounted once a post was confirmed: `posted` is only ever set in the success branch.
+    expect(esports).toMatch(/\{posted \? \(\s*<PostResultDialog/)
+    expect(esports.match(/setPosted\(\{/g)).toHaveLength(1)
+    expect(esports.slice(esports.lastIndexOf('if (outcome.ok) {', esports.indexOf('setPosted({')), esports.indexOf('setPosted({'))).toContain('if (outcome.ok) {')
   })
 
   it('a success toast is never pushed from a lost or failed branch', () => {
