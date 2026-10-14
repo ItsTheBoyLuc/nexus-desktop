@@ -52,6 +52,10 @@ Branch on `error`, show `message`. Unexpected failures are `500 internal_error` 
 | 403 | `bot_cannot_send` | The bot lacks permission to post in that channel |
 | 400 | `invalid_ping_roles` / `too_many_ping_roles` | M6: `ping_role_ids` is malformed / has more than 3 roles |
 | 404 | `role_not_found` | M6: a role in `ping_role_ids` is not in this server |
+| 403 | `bot_cannot_read` | M7: the bot lacks View Channel or Read Message History in that channel |
+| 403 | `bot_cannot_delete` | M7: Discord refused to delete the message |
+| 403 | `not_an_app_post` | M7: the message is not a post the app made (or it has buttons), so it is not deleted |
+| 404 | `message_not_found` | M7: the message does not exist (any more) |
 | 403 | `role_not_pingable` / `bot_cannot_mention_role` | M6: `@everyone` or a bot-managed role / a non-mentionable role the bot may not mention |
 | 409 | `already_closed` / `confirmation_channel_ambiguous` / … | State conflicts (codes listed per endpoint) |
 | 404 | `guild_not_found` | The bot is not in that server |
@@ -76,7 +80,8 @@ Token bucket, per user. Exceeding it returns `429 rate_limited` with a `Retry-Af
 | Reads | 60 / minute | every authenticated request |
 | Writes | 10 / minute | every `POST` / `PUT` / `PATCH` / `DELETE` under `/guilds/{guild_id}/…` |
 | Role pings | 5 / minute per user **and server** | a post with `ping_role_ids` (M6), on top of the write limit |
-| Member search | 30 / minute | `GET /guilds/{guild_id}/members` (on top of the read limit) |
+| Member search | 30 / minute | `GET /guilds/{guild_id}/members` and `GET /guilds/{guild_id}/app-posts` — the calls that go to Discord (on top of the read limit) |
+| Deletes | 10 / minute per user **and server** | `DELETE /guilds/{guild_id}/app-posts/…` (M7), on top of the write limit; refused attempts count too |
 | Auth endpoints | 10 / minute per IP | `/auth/exchange`, `/auth/refresh` |
 | Login pages | 20 / minute per IP | `/app/auth/login`, `/app/auth/callback` |
 | Bad tokens | 30 / minute per IP | failed bearer authentication |
@@ -90,11 +95,12 @@ store as `{ts, user_id, username, guild_id, action, detail}`. Actions: `announce
 `f1.team.create`, `f1.driver.add|remove`, `f1.results.record`, `f1.points_system.update`, `f1.report.decide`,
 `f1.penalty_settings.update`, `f1.penalty.add|clear|ban_give|ban_remove|advance_race`, `f1.dirty_driver.report|remove_report`,
 `attendance.division.update`, `attendance.post.create`, `signup.questions.update`, `signup.create`, `signup.close`, `signup.participant.remove`,
-`esports.team.create`, `esports.roster.add|remove`, `esports.event.add`, `esports.result.log`, `esports.attendance.create`, `esports.announcement.post`,
+`esports.team.create|update`, `esports.roster.add|remove`, `esports.event.add`, `esports.result.log`, `esports.attendance.create`, `esports.announcement.post`,
 `esports.team.post`, `esports.event.post`, `esports.result.post`.
 Every esports post entry (`esports.attendance.create`, `esports.announcement.post`, `esports.{team|event|result}.post`) carries `game`, `channel_id`, `message_id` and `ping_role_ids`
 (the roles pinged, `[]` for none) in `detail` (M6). A card posted together with a create (`channel_id` on the create endpoint) is logged as its own `esports.*.post` entry next to the create entry;
 a post that failed has no `.post` entry.
+Deleting an app post (M7) is **not** written to this store (the endpoint persists nothing); the server only writes one log line (guild, channel, message, user).
 
 ---
 
@@ -1246,7 +1252,7 @@ All writes use the same locked atomic helper (`_gp_update`, a lock per file) tha
 | Needs | Endpoints | Rule (same as the command) | Error |
 |---|---|---|---|
 | staff | every `GET` | no special permission | `403 forbidden` |
-| Manage Server **or** Administrator | create team, add / remove roster, add event, log result | `has_permissions(manage_guild=True)` | `403 manage_server_required` |
+| Manage Server **or** Administrator | create / edit team, add / remove roster, add event, log result | `has_permissions(manage_guild=True)` | `403 manage_server_required` |
 | Manage Server, Administrator, **or Manager / Coach** of a team **of this game** | create attendance post, post announcement | `_racing_manager_check(game)` / `_lmu_manager_check` | `403 manager_required` |
 
 A Manager or Coach of an iRacing team is not allowed to post for GT7. The roster role is compared case-insensitively ("manager", "Coach", …).
@@ -1299,6 +1305,46 @@ the new role is deleted again (rollback). Response `201`: `{ "game", "team": { �
 **M6:** optional `channel_id` + `ping_role_ids` post the new team's card too — see [Posting a card with a create](#posting-a-card-together-with-a-create-m6); the response gains `post` or `post_error`.
 Errors: `400 invalid_name | invalid_color | invalid_focus | invalid_channel | invalid_ping_roles | too_many_ping_roles`, `403 manage_server_required | bot_missing_manage_roles | bot_cannot_send | forbidden | role_not_pingable | bot_cannot_mention_role`,
 `404 channel_not_found | role_not_found`, `409 team_exists`, `429 rate_limited`, `502 discord_error`, `504 bot_timeout`.
+
+### PATCH /guilds/{guild_id}/racing/{game}/teams
+
+Edit a team (M7): **rename it and/or change its class focus**. Needs **Manage Server or Administrator** (the same as create; a Manager or Coach cannot edit a team). Works for all five games.
+Request (the team is identified by its current name, like the roster endpoints; at least one of `new_name` / `focus` must actually change something):
+
+```json
+{ "team": "Apex Racing", "new_name": "Apex Motorsport", "focus": "Hypercar" }
+```
+
+| Field | Rule |
+|---|---|
+| `team` | required, the **current** name (1–50, any capitalisation) |
+| `new_name` | optional, 1–50 single line, trimmed. Same rules as create: a name used by **another** team (any capitalisation) is `409 team_exists`. Changing only the capitalisation of **this** team is allowed. |
+| `focus` | optional free text ≤ 30, single line, trimmed — the same field create takes (`lmu` stores it as `class_focus`, the others as `focus`; the API always says `focus`). `null` or `""` **clears** it. Leaving the key out keeps it. |
+
+A request that changes nothing (no `new_name` / `focus`, or values equal to the current ones) is `400 no_changes`. The class of a team is the only category field a team has — there is no separate `class` key on teams (that key belongs to events).
+
+**What a rename updates.** Everything in that game's data that stores the team by name, together:
+
+| File (`{game}` = the game's own files) | Change |
+|---|---|
+| `{game}_teams.json` (`racing_f1_teams.json` for `f1`) | the team's key under this server is renamed **in place** (the order is kept) and the new focus is saved |
+| `{game}_results.json` (`racing_f1_results.json` for `f1`) | every result of this server whose `team_name` is the old name (any capitalisation, like `team-stats`) gets the new name |
+
+Nothing else holds a team name: events, attendance posts and roster entries do not, so those files are not touched. Other servers' data, the other four games and the league `/f1` data are never read or written.
+The team keeps its colour, role, roster and history (`created_by`, `created_at`).
+
+**The Discord role** is renamed to the new name (the same convention as create: role name = team name). Only the **name** changes — never the colour, permissions or members.
+Before anything changes the API checks that the bot has **Manage Roles** (`403 bot_missing_manage_roles`) and that the team role is below the bot's highest role (`403 role_not_assignable`); these two checks only apply when a role really is renamed, so a focus-only edit never touches Discord.
+If the team's role no longer exists the data change is still applied and the response says `role_updated: false`.
+**Already posted Discord messages (team cards, results, announcements, attendance posts) are not edited** — they keep showing the old name.
+
+**Order and rollback** (like create: the Discord call first): role rename → teams file → results file, each file under its own lock (`_gp_update`). If the role rename fails (Discord refuses, error, timeout) nothing has been changed and the error is returned.
+If a later step fails — the teams save fails, another team took the name in the meantime (`409`), the team vanished (`404`), or the results save fails — the steps before it are undone: the teams file is restored (old key in the old position, old focus) and the role gets its previous name back.
+A rollback that itself fails is only logged.
+
+Response `200`: `{ "game", "team": { …exactly the shape of GET team, with the roster… }, "role_updated": true }` — `role_updated` is `true` when the team's role carries the new name now, `false` when only the focus changed or the role is gone.
+Errors: `400 invalid_request | invalid_team | invalid_name | invalid_focus | no_changes`, `403 manage_server_required | bot_missing_manage_roles | role_not_assignable`, `404 unknown_game | team_not_found`, `409 team_exists`, `429 rate_limited`,
+`502 discord_error`, `504 bot_timeout`. Audit: `esports.team.update` with `{game, name, new_name, focus_changed, role_updated, results_updated}`.
 
 ### POST /guilds/{guild_id}/racing/{game}/roster
 
@@ -1523,7 +1569,7 @@ Events and results created before ids existed would have none and could not be f
 ### Things that cannot be done through the API (M5)
 
 * **Setting, toggling or removing someone else's attendance**, and **editing or deleting an attendance post** — drivers toggle their own status in Discord and no command does the rest.
-* **Editing or deleting a team, an event or a result** — no command does it (and a team's role is created once, never renamed).
+* **Deleting a team, or editing / deleting an event or a result** — no command does it. A team's **name and class focus** can be edited since M7 (`PATCH …/teams`); its colour cannot.
 * **A free-text roster role.** The commands accept any text; the app offers the four roles `Race Driver`, `Reserve`, `Coach`, `Manager` (the leader check only knows Manager and Coach).
 * **Looking a member up by name.** The commands' robust username search is replaced by the member ID the app gets from `GET /members`.
 * **Finding an attendance post's channel** — it is not stored.
@@ -1539,6 +1585,55 @@ Events and results created before ids existed would have none and could not be f
 * **The announcement title was not escaped** (`📢 {title}`) and an `http://` image link was accepted; the description is only emoji-converted. *Fixed (command bug fixes):* the shared embed builder now escapes the title (so the API's announcement does too) and the commands refuse an image URL that does not start with `https://`.
 * **A deleted team role** makes `roster-add` fail ("Team role not found") with no way to relink it, and a deleted team cannot be removed.
 * **`/racing lmu` still carries its own copy of every handler** (`class_focus` / `class` field names, own view and custom ids). The shared helpers behind them are now one set of functions, but the two storage shapes remain.
+
+---
+
+## App posts (M7)
+
+The messages the app itself posted — announcements (`POST /announcement`, `POST /racing/{game}/announcement`) and the team / event / result cards (`…/teams/post`, `…/events/post`, `…/results/post`, or `channel_id` on a create) —
+can be listed and deleted again. **Nothing is stored**: the list is read from Discord, and a message is recognised by what is on it.
+
+A message is an **app post** only if **all three** are true:
+
+1. the **bot wrote it** (a user message, a webhook or another bot's message never qualifies);
+2. one of its embeds has a **footer that starts with `Posted via Nexus App`** (the footer every app post gets: `Posted via Nexus App by {app user} · …`);
+3. it has **no components** (no buttons or menus). Attendance posts and sign-up / tier panels therefore never qualify, whatever their footer says.
+
+Everything else the bot posts — calendars, reports, panels, `/f1` and `/racing` command replies — has another footer or buttons and is never listed or deleted by these endpoints.
+
+### GET /guilds/{guild_id}/app-posts
+
+Query: `channel_id` (required, a text channel of this server). Staff only (like every read); no special permission. Looks at the **last 100 messages** of the channel and returns up to the **25 newest** app posts among them, newest first.
+
+```json
+{ "channel_id": "777…", "posts": [ { "message_id": "600…", "channel_id": "777…", "title": "📢 Round_3 starts", "posted_at": "2026-10-01T12:03:00Z",
+                                    "jump_url": "https://discord.com/channels/…/777…/600…" } ] }
+```
+
+`title` is the embed title as **plain text**: the markdown escapes the app added (`\_`) are removed, line breaks become spaces and it is cut to 100 characters (`…` marks the cut); it is `""` for an embed without a title.
+An app post that is older than the last 100 messages of the channel is not found. The caller must be able to **see** the channel and the bot needs **View Channel** and **Read Message History** there.
+Counts towards the member-search limit (30 / minute), because it reads from Discord.
+Errors: `400 invalid_channel` (missing or not a numeric ID), `403 forbidden` (you cannot see the channel) `| bot_cannot_read`, `404 channel_not_found` (not a text channel **of this server** — a channel of another server is this too),
+`429 rate_limited`, `502 discord_error`, `504 bot_timeout`.
+
+### DELETE /guilds/{guild_id}/app-posts/{channel_id}/{message_id}
+
+Deletes one app post. Needs **Manage Server or Administrator** — a team **Manager or Coach cannot delete in this milestone** (`403 manage_server_required`). No body and no `confirm` flag: the app asks the user first.
+The channel must belong to **this** server and be visible to the caller. The bot **fetches the message and checks the three rules above before it deletes anything**, in one trip to Discord, so what was checked is what is deleted.
+A message that fails any of them — a normal user message, another bot's message, a bot message without the footer, a message with buttons — is **`403 not_an_app_post` and nothing is deleted**.
+Bad IDs (not numeric, `0`, longer than a Discord ID) are `400` before Discord is contacted.
+Response `200`: `{ "deleted": true }`. Persists nothing (no data file, no audit entry); a log line is written on the server.
+Rate limit: **10 deletes / minute per user and server** (`429 rate_limited` with `Retry-After`), in addition to the write limit; refused attempts count too.
+Errors: `400 invalid_channel | invalid_message_id`, `403 manage_server_required | forbidden | bot_cannot_read | not_an_app_post | bot_cannot_delete`, `404 channel_not_found | message_not_found` (also when it was deleted a moment earlier),
+`429 rate_limited`, `502 discord_error`, `504 bot_timeout`.
+
+### What is not covered (M7)
+
+* **Posts made before the footer existed**, or posts whose embed was changed so that the footer no longer starts with `Posted via Nexus App`, are not recognised.
+* **Posts older than the last 100 messages** of a channel are not listed (and can still be deleted if you have their ID).
+* **Threads, forum posts and voice-channel text** — only text channels (announcement channels included), like posting.
+* **Editing** an app post — not available; delete it and post again.
+* **A team's role rename does not edit posts that are already in Discord** (see `PATCH …/teams`).
 
 ---
 
