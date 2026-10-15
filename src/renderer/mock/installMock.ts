@@ -23,6 +23,7 @@
  *   roleabove | editnochanges | editgone   editing a team (M7), see mock/racingMock.ts
  *   updatecurrent | updateavailable | updatebusy | updateerror | updatedownloaderror   fake app-update states (the updater itself is always off in the mock), see mock/updatesMock.ts
  *   noappposts | postgone | notappost | cannotread | cannotdelete | channelgone | deletelimit | lostdelete   the posts made with the app and deleting them (M7), see mock/appPostsMock.ts
+ *   maxtext | overtext             submit every raised long text at exactly its limit / one character over it (the console shows each outcome), see mock/textLimitsMock.ts
  *   manyteamroles | norolelist | invalidping | toomanyping | pingrefused | pinglimit | posterror   role pings and cards of the esports features, see mock/pingMock.ts and mock/racingMock.ts
  *   notadmin                       staff only, not Administrator: saving settings returns 403
  *                                  admin_required and linking an admin-level role returns
@@ -71,6 +72,7 @@ import { createUpdatesMock } from './updatesMock'
 import { MENTION_ALL_CHANNEL, ROLE_DELETED_MEANWHILE, ROLE_NOT_MENTIONABLE } from './pingMock'
 import type { F1MockContext } from './f1Mock'
 import { createStewardMock } from './stewardMock'
+import { runLongTextScenario } from './textLimitsMock'
 
 /** Marker searched for by scripts/check-no-mock.mjs. Do not rename without updating it. */
 export const MOCK_MARKER = 'NEXUS_MOCK_BRIDGE_ACTIVE'
@@ -677,4 +679,5 @@ export function installMockBridge(): void {
   }
 
   Object.defineProperty(window, 'nexus', { value: bridge, writable: false, configurable: false })
+  if (scenario === 'maxtext' || scenario === 'overtext') void runLongTextScenario(bridge, scenario, MOCK_MARKER)
 }

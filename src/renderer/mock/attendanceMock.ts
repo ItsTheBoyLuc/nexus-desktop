@@ -52,6 +52,7 @@ import type {
 import { failure, notFound, refused, timeoutFailure } from './common'
 import type { F1MockContext } from './f1Mock'
 import { LEFT_SERVER, MEMBERS } from './f1Mock'
+import { checkLongText } from './textLimitsMock'
 
 type AttendanceMockApi = Pick<
   NexusBridge['api'],
@@ -345,6 +346,8 @@ export function createAttendanceMock(ctx: F1MockContext): { api: AttendanceMockA
         gate(guildId, (state) => {
           const problem = channelProblem(input.channelId)
           if (problem) return problem
+          const tooLong = checkLongText('f1AttendanceDescription', input.description) // the fake server's own check of the text limit
+          if (tooLong) return tooLong
           const division = state.divisions.find((item) => item.name === input.division)
           if (!division) return notFound('division_not_found', `The division '${input.division}' does not exist.`)
           const created = post(String(nextMessage++), input.season, input.round, input.circuit, division.name, division.regular.filter(IN_SERVER), [], [], input.description ?? '')
@@ -394,6 +397,8 @@ export function createAttendanceMock(ctx: F1MockContext): { api: AttendanceMockA
         gate(guildId, (state) => {
           const problem = channelProblem(input.channelId)
           if (problem) return problem
+          const tooLong = checkLongText('signupDescription', input.description)
+          if (tooLong) return tooLong
           if (input.confirmationChannelId !== undefined) {
             if (!ctx.channels.some((channel) => channel.id === input.confirmationChannelId)) return notFound('confirmation_channel_not_found', 'The confirmation channel was not found.')
             if (input.confirmationChannelId === ctx.lockedChannel || scenario === 'noconfirmperms') return refused('bot_cannot_post_confirmations', 'The bot cannot post in the confirmation channel.')

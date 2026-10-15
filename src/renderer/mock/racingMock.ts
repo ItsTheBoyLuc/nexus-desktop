@@ -73,6 +73,7 @@ import { failure, notFound, refused, timeoutFailure } from './common'
 import type { F1MockContext } from './f1Mock'
 import { MEMBERS } from './f1Mock'
 import { checkPings, createPingLimiter } from './pingMock'
+import { checkLongText, checkResultText } from './textLimitsMock'
 
 type RacingMockApi = Pick<NexusBridge['api'], 'racingTeams' | 'racingTeam' | 'createRacingTeam' | 'editRacingTeam' | 'addRosterMember' | 'removeRosterMember' | 'racingDriver' | 'racingEvents' | 'addRacingEvent' | 'racingResults' | 'logRacingResult' | 'racingAttendance' | 'racingAttendancePost' | 'createRacingAttendance' | 'postRacingAnnouncement' | 'racingTeamRoles' | 'postRacingTeam' | 'postRacingEvent' | 'postRacingResult'>
 
@@ -490,6 +491,8 @@ export function createRacingMock(ctx: F1MockContext): { api: RacingMockApi; role
         manage(guildId, game, (state) => {
           const target = findTeam(state, input.team)
           if (!target) return notFound('team_not_found', `Team '${input.team}' was not found.`)
+          const tooLong = checkResultText(input)
+          if (tooLong) return tooLong
           const card = cardCheck(guildId, input)
           if ('error' in card) return card.error // the whole post is checked first: a refusal logs nothing
           const created: RacingResult = {
@@ -531,6 +534,8 @@ export function createRacingMock(ctx: F1MockContext): { api: RacingMockApi; role
         managerGate(guildId, game, (state) => {
           const problem = channelProblem(input.channelId)
           if (problem) return problem
+          const tooLong = checkLongText('racingAttendanceDescription', input.description)
+          if (tooLong) return tooLong
           const pings = pingCheck(guildId, input.pingRoleIds, input.channelId)
           if ('error' in pings) return pings.error
           if (/\bfail\b/i.test(input.name)) return failure('http', 'discord_error', 'Discord rejected the message.', 502) // Discord refused: nothing posted
@@ -571,6 +576,8 @@ export function createRacingMock(ctx: F1MockContext): { api: RacingMockApi; role
     addRacingEvent: (guildId, game, input) =>
       ctx.api<WithCard<RacingEvent>>(() =>
         manage(guildId, game, (state) => {
+          const tooLong = checkLongText('eventNotes', input.notes) // the fake server's own check of the text limit (docs: Text limits)
+          if (tooLong) return tooLong
           const card = cardCheck(guildId, input)
           if ('error' in card) return card.error // the whole post is checked first: a refusal adds nothing
           const created = event(`new-${state.events.length + 1}-${Date.now().toString(16)}`, input.name, input.date, input.time, input.class ?? '', input.notes ?? '')

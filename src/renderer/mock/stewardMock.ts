@@ -59,6 +59,7 @@ import type {
 import type { NexusBridge } from '../../shared/bridge'
 import { failure, notFound, refused, timeoutFailure } from './common'
 import type { F1MockContext } from './f1Mock'
+import { checkLongText } from './textLimitsMock'
 
 type StewardApi = Pick<
   NexusBridge['api'],
@@ -392,6 +393,8 @@ export function createStewardMock(ctx: F1MockContext): {
           const report = state.reports.find((item) => item.id === reportId)
           if (!report) return notFound('report_not_found', 'That report was not found.')
           const text = input.decision === 'penalty_issued' ? input.description : input.explanation
+          const tooLong = checkLongText(input.decision === 'penalty_issued' ? 'decisionDescription' : 'decisionExplanation', text)
+          if (tooLong) return tooLong
           const points = input.decision === 'penalty_issued' ? input.penaltyPoints : 0
 
           // 1. Nothing changes until the bot found the report's message and thread.
@@ -494,6 +497,8 @@ export function createStewardMock(ctx: F1MockContext): {
     addPenaltyPoints: (guildId, input) =>
       ctx.api<ManualPointsResult>(() =>
         gate(guildId, (state) => {
+          const tooLong = checkLongText('penaltyPointsReason', input.reason) // the fake server's own check of the text limit
+          if (tooLong) return tooLong
           if (input.points === 0 && input.channelId === undefined) return failure('http', 'nothing_to_do', '0 points records nothing and needs a channel.', 400)
           if (input.channelId !== undefined) {
             if (input.channelId === ctx.hiddenChannel) return refused('forbidden', 'You cannot see that channel.')
@@ -521,6 +526,8 @@ export function createStewardMock(ctx: F1MockContext): {
     clearPenaltyPoints: (guildId, input) =>
       ctx.api<ClearPointsResult>(() =>
         fiaGate(guildId, (state) => {
+          const tooLong = checkLongText('penaltyClearReason', input.reason)
+          if (tooLong) return tooLong
           const season = input.season ?? state.rules.currentSeason
           const record = state.penalties.get(season)?.get(keyOf(input.driver))
           if (!record) return notFound('driver_not_found', `No penalty record was found for ${input.driver} in season ${season}.`)
