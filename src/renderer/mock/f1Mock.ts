@@ -81,6 +81,8 @@ export interface F1MockContext {
   serverRoles?: (guildId: string) => Role[]
   /** The channel where the bot has Mention Everyone, so a role that is not mentionable can be pinged there (M6). */
   mentionAllChannel?: string
+  /** Tells the app posts mock (M7) that something was posted, so it can be listed and deleted again. Set once that mock exists. */
+  recordPost?: (guildId: string, channelId: string, messageId: string, title: string) => void
 }
 
 type F1Api = Pick<

@@ -305,7 +305,7 @@ describe('the success check mark', () => {
     expect(lost).toBeGreaterThan(0)
     expect(esports.slice(lost, esports.indexOf('Discard this draft', lost))).not.toContain('SuccessMark')
     // The result dialog (with the check mark) is only mounted once a post was confirmed: `posted` is only ever set in the success branch.
-    expect(esports).toMatch(/\{posted \? \(\s*<PostResultDialog/)
+    expect(esports).toMatch(/\{posted(?: && !deleting)? \? \(\s*<PostResultDialog/) // M7: hidden while its delete confirmation is open
     expect(esports.match(/setPosted\(\{/g)).toHaveLength(1)
     expect(esports.slice(esports.lastIndexOf('if (outcome.ok) {', esports.indexOf('setPosted({')), esports.indexOf('setPosted({'))).toContain('if (outcome.ok) {')
   })

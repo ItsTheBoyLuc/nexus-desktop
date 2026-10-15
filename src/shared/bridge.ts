@@ -1,4 +1,6 @@
 import type {
+  AppPostDeleteResult,
+  AppPostList,
   AddDriverInput,
   AddDriverResult,
   AdvanceRaceInput,
@@ -243,6 +245,10 @@ export interface NexusBridge {
     racingTeam: (guildId: string, game: RacingGame, name: string) => Promise<IpcResult<RacingTeamDetail>>
     /** Needs Manage Server or Administrator (403 manage_server_required). A lost answer may already have created the Discord role: never repeat it with the same data. */
     createRacingTeam: (guildId: string, game: RacingGame, input: RacingTeamInput) => Promise<IpcResult<WithCard<RacingTeamDetail>>>
+    /** M7. The app posts among the last 100 messages of a channel, read from Discord. Memory only: nothing about posts is stored. */
+    appPosts: (guildId: string, channelId: string) => Promise<IpcResult<AppPostList>>
+    /** M7. Needs Manage Server or Administrator (403 manage_server_required). Deletes the message only, never a team, event or result. Sent once: a lost answer is settled by reading the list again, never by sending it again. */
+    deleteAppPost: (guildId: string, channelId: string, messageId: string) => Promise<IpcResult<AppPostDeleteResult>>
     /** M7. Needs Manage Server or Administrator (403 manage_server_required). Only the changed fields are sent. A lost answer may already have renamed the Discord role: never repeat it with the same data. */
     editRacingTeam: (guildId: string, game: RacingGame, input: RacingTeamEditInput) => Promise<IpcResult<RacingTeamEditResult>>
     addRosterMember: (guildId: string, game: RacingGame, input: RosterAddInput) => Promise<IpcResult<RosterAddResult>>

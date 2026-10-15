@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import type {
+  AppPostList,
   AttendanceDivisions,
   AttendancePost,
   Calendar,
@@ -34,6 +35,7 @@ import type {
 } from '../../shared/types'
 import { cached, clearCache, dropCached, onInvalidate } from '../lib/cache'
 import { errorCode, unwrap } from '../lib/errors'
+import { appPostsKey } from '../lib/appPosts'
 import { racingKey } from '../lib/racingScope'
 import { useAsync } from './useAsync'
 import type { AsyncState } from './useAsync'
@@ -248,6 +250,13 @@ export function useRacingAttendancePost(guildId: string | undefined, game: Racin
 
 export function useRacingDriver(guildId: string | undefined, game: RacingGame, userId: string | null): Loaded<RacingDriverProfile> {
   return useApiData(guildId && userId ? racingKey(guildId, game, 'driver', userId) : null, () => unwrap(window.nexus.api.racingDriver(guildId ?? '', game, userId ?? '')), false)
+}
+
+// ── Posts made with the app (milestone 7): read from Discord when asked, memory only ──
+
+/** The app posts among the last 100 messages of one channel. `null` channel: nothing chosen yet, nothing is read. */
+export function useAppPosts(guildId: string | undefined, channelId: string | null): Loaded<AppPostList> {
+  return useApiData(guildId && channelId ? appPostsKey(guildId, channelId) : null, () => unwrap(window.nexus.api.appPosts(guildId ?? '', channelId ?? '')), false)
 }
 
 // ── Role pings (milestone 6) ────────────────────────────────────────────────

@@ -21,6 +21,7 @@
  *   nodivisions | nosignups | noconfirmperms | nomanagechannels | ambiguousconfirm | lostcreates   attendance and sign-ups, see mock/attendanceMock.ts
  *   noracingteams | nomanage | nomanageroles | lostracing | noresults | noattendance | nomanager | nomanager-<game>   esports teams of the five games, see mock/racingMock.ts
  *   roleabove | editnochanges | editgone   editing a team (M7), see mock/racingMock.ts
+ *   noappposts | postgone | notappost | cannotread | cannotdelete | channelgone | deletelimit | lostdelete   the posts made with the app and deleting them (M7), see mock/appPostsMock.ts
  *   manyteamroles | norolelist | invalidping | toomanyping | pingrefused | pinglimit | posterror   role pings and cards of the esports features, see mock/pingMock.ts and mock/racingMock.ts
  *   notadmin                       staff only, not Administrator: saving settings returns 403
  *                                  admin_required and linking an admin-level role returns
@@ -61,6 +62,7 @@ import type {
 } from '../../shared/types'
 
 import { clone, failure, notFound, sleep, timeoutFailure } from './common'
+import { createAppPostsMock } from './appPostsMock'
 import { createAttendanceMock } from './attendanceMock'
 import { createF1Mock } from './f1Mock'
 import { createRacingMock } from './racingMock'
@@ -324,6 +326,9 @@ export function installMockBridge(): void {
   const f1 = createF1Mock(mockContext)
   const steward = createStewardMock(mockContext)
   const attendance = createAttendanceMock(mockContext)
+  // The posts made with the app (M7) must exist before anything posts: every announcement and card is recorded there.
+  const appPosts = createAppPostsMock(mockContext)
+  mockContext.recordPost = appPosts.record
   const racing = createRacingMock(mockContext)
   settings = f1.seedSettings(settings)
 
@@ -486,13 +491,16 @@ export function installMockBridge(): void {
           return { ok: true, data: clone(racing.roles(guildId)) }
         }),
 
-      postAnnouncement: (_guildId, input) =>
+      postAnnouncement: (guildId, input) =>
         api<AnnouncementResult>(() => {
           // Hooks for reviewing error states: put one of these words in the title.
           if (/\bfail\b/i.test(input.title) || input.channelId === LOCKED_CHANNEL) return failure('http', 'bot_cannot_send', 'The bot cannot post in that channel.', 403)
           if (input.channelId === HIDDEN_CHANNEL) return failure('http', 'forbidden', 'You cannot see that channel.', 403)
-          if (/\btimeout\b/i.test(input.title)) return timeoutFailure()
-          return { ok: true, data: { messageId: '888000000000000001', channelId: input.channelId } }
+          const messageId = String(nextMessage++)
+          liveMessages.add(messageId)
+          appPosts.record(guildId, input.channelId, messageId, input.title)
+          if (/\btimeout\b/i.test(input.title)) return timeoutFailure() // posted, but the answer "got lost"
+          return { ok: true, data: { messageId, channelId: input.channelId } }
         }),
 
       overview: (guildId) => api(() => (known(guildId) ? { ok: true, data: overviewOf(guildId) } : guildMissing())),
@@ -618,6 +626,7 @@ export function installMockBridge(): void {
       ...steward.api,
       ...attendance.api,
       ...racing.api,
+      ...appPosts.api,
 
       getStatus: async () => currentStatus,
       onStatusChange: (callback): Unsubscribe => {

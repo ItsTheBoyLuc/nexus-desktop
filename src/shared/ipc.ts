@@ -75,6 +75,8 @@ export const IPC = {
   apiRacingTeam: 'api:racing-team',
   apiRacingTeamCreate: 'api:racing-team-create',
   apiRacingTeamEdit: 'api:racing-team-edit',
+  apiAppPosts: 'api:app-posts',
+  apiAppPostDelete: 'api:app-post-delete',
   apiRacingRosterAdd: 'api:racing-roster-add',
   apiRacingRosterRemove: 'api:racing-roster-remove',
   apiRacingDriver: 'api:racing-driver',

@@ -1074,6 +1074,26 @@ export interface RacingTeamInput {
   pingRoleIds?: string[]
 }
 
+/** One message the app posted itself (M7), as `GET /app-posts` lists it. Read from Discord every time: nothing about posts is stored. */
+export interface AppPost {
+  channelId: string
+  messageId: string
+  /** The embed title as plain text (the server removes its markdown escapes), at most 100 characters; empty for an embed without a title. */
+  title: string
+  /** ISO 8601 time the message was posted. */
+  postedAt: string
+}
+
+/** The app posts among the last 100 messages of a channel, newest first, at most 25. */
+export interface AppPostList {
+  channelId: string
+  posts: AppPost[]
+}
+
+export interface AppPostDeleteResult {
+  deleted: true
+}
+
 /**
  * Edit a team (M7): `PATCH /racing/{game}/teams`. The team is named by its CURRENT name. Only the fields that really change are sent:
  * `newName` renames the team (and its Discord role, and the team name of its results), `focus` is the class or category, the only

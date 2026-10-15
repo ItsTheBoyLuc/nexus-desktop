@@ -301,14 +301,15 @@ export function createRacingMock(ctx: F1MockContext): { api: RacingMockApi; role
     return { post: { channelId: input.channelId, pinged: pings.pinged } }
   }
   /** What the create says about its card once the item is saved: posted, or post_error (the item stays). */
-  const cardOutcome = (name: string, post: { channelId: string; pinged: PingedRole[] }): CardOutcome => {
+  const cardOutcome = (guildId: string, name: string, post: { channelId: string; pinged: PingedRole[] }): CardOutcome => {
     if (/postslow/i.test(name)) return { status: 'failed', error: { code: 'bot_timeout', message: 'Discord did not answer in time.' } }
     if (scenario === 'posterror' || /postfail/i.test(name)) return { status: 'failed', error: { code: 'discord_error', message: 'Discord rejected the message.' } }
     const messageId = ctx.newMessageId()
     ctx.liveMessages.add(messageId)
+    ctx.recordPost?.(guildId, post.channelId, messageId, name) // listed by the app posts mock (M7), where it can be deleted again
     return { status: 'posted', post: { channelId: post.channelId, messageId, pingedRoles: post.pinged } }
   }
-  const withCard = <T extends object>(item: T, name: string, post: { channelId: string; pinged: PingedRole[] } | null): WithCard<T> => (post ? { ...item, card: cardOutcome(name, post) } : item)
+  const withCard = <T extends object>(guildId: string, item: T, name: string, post: { channelId: string; pinged: PingedRole[] } | null): WithCard<T> => (post ? { ...item, card: cardOutcome(guildId, name, post) } : item)
   const lostCard = (name: string, post: { channelId: string } | null): boolean => lost(name) || (post !== null && post.channelId === ctx.timeoutChannel)
   /** The dedicated "Post to Discord" of an existing item: nothing is created or changed. */
   const postCard = (guildId: string, name: string, input: { channelId: string; pingRoleIds?: string[] | undefined }): IpcResult<CardPostResult> => {
@@ -318,6 +319,7 @@ export function createRacingMock(ctx: F1MockContext): { api: RacingMockApi; role
     if (/\bfail\b/i.test(name)) return failure('http', 'discord_error', 'Discord rejected the message.', 502) // Discord refused: nothing posted
     const messageId = ctx.newMessageId()
     ctx.liveMessages.add(messageId)
+    ctx.recordPost?.(guildId, checked.post.channelId, messageId, name)
     if (lostCard(name, checked.post)) return timeoutFailure() // posted, but the answer "got lost"
     return { ok: true, data: { messageId, channelId: checked.post.channelId, pingedRoles: checked.post.pinged } }
   }
@@ -373,7 +375,7 @@ export function createRacingMock(ctx: F1MockContext): { api: RacingMockApi; role
           if (findTeam(state, input.name)) return failure('http', 'team_exists', `A team named '${input.name}' already exists (any capitalisation).`, 409)
           const created: TeamState = { name: input.name, color: input.color, focus: input.focus ?? '', roleId: roleId(), roleExists: true, roster: [], createdAt: new Date().toISOString() }
           state.teams.push(created)
-          const answer = withCard(detailView(created), input.name, card.post)
+          const answer = withCard(guildId, detailView(created), input.name, card.post)
           if (lostCard(input.name, card.post)) return timeoutFailure() // created (with its role, and its card), but the answer "got lost"
           return { ok: true, data: answer }
         })
@@ -501,7 +503,7 @@ export function createRacingMock(ctx: F1MockContext): { api: RacingMockApi; role
             loggedAt: new Date().toISOString()
           }
           state.results.push(created) // the same result twice is two entries: the archive never checks for duplicates
-          const answer = withCard({ ...created }, input.eventName, card.post)
+          const answer = withCard(guildId, { ...created }, input.eventName, card.post)
           if (lostCard(input.eventName, card.post)) return timeoutFailure() // appended (and posted), but the answer "got lost"
           return { ok: true, data: answer }
         })
@@ -552,6 +554,7 @@ export function createRacingMock(ctx: F1MockContext): { api: RacingMockApi; role
           if (/\bfail\b/i.test(input.title)) return failure('http', 'discord_error', 'Discord rejected the message.', 502) // Discord refused: nothing posted
           const messageId = ctx.newMessageId()
           ctx.liveMessages.add(messageId)
+          ctx.recordPost?.(guildId, input.channelId, messageId, input.title)
           if (lostPost(input.title, input.channelId)) return timeoutFailure() // posted, but the answer "got lost"
           return { ok: true, data: { messageId, channelId: input.channelId, pingedRoles: pings.pinged } }
         })
@@ -572,7 +575,7 @@ export function createRacingMock(ctx: F1MockContext): { api: RacingMockApi; role
           if ('error' in card) return card.error // the whole post is checked first: a refusal adds nothing
           const created = event(`new-${state.events.length + 1}-${Date.now().toString(16)}`, input.name, input.date, input.time, input.class ?? '', input.notes ?? '')
           state.events.push(created)
-          const answer = withCard({ ...created }, input.name, card.post)
+          const answer = withCard(guildId, { ...created }, input.name, card.post)
           if (lostCard(input.name, card.post)) return timeoutFailure() // stored (and posted), but the answer "got lost"
           return { ok: true, data: answer }
         })

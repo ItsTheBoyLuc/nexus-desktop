@@ -28,6 +28,7 @@ import {
   parseSignupInput,
   parseSignupStatus
 } from '../shared/attendanceInputs'
+import { parseAppPostChannel, parseAppPostRef } from '../shared/appPostInputs'
 import { IPC } from '../shared/ipc'
 import { parseRacingAnnouncementInput, parseRacingAttendanceInput, parseRacingEventInput, parseRacingEventPostInput, parseRacingResultPostInput, parseRacingTeamPostInput, parseRacingGame, parseRacingPage, parseRacingResultInput, parseRacingResultQuery, parseRacingTeamEditInput, parseRacingTeamInput, parseRacingTeamName, parseRacingUserId, parseRosterAddInput } from '../shared/racingInputs'
 import {
@@ -281,6 +282,14 @@ export function registerIpc(deps: IpcDeps): void {
   handle(IPC.apiRacingTeams, (guildId, game) => racing(guildId, game, (id, g) => deps.api.racingTeams(id, g)))
   handle(IPC.apiRacingTeam, (guildId, game, name) => racing(guildId, game, (id, g) => deps.api.racingTeam(id, g, valid(parseRacingTeamName(name)))))
   handle(IPC.apiRacingTeamCreate, (guildId, game, input) => racing(guildId, game, (id, g) => deps.api.createRacingTeam(id, g, valid(parseRacingTeamInput(input)))))
+  // App posts (milestone 7): the ids are re-checked here, the delete goes out once, and nothing about a post is logged or stored.
+  handle(IPC.apiAppPosts, (guildId, channelId) => withGuild(guildId, (id) => deps.api.appPosts(id, valid(parseAppPostChannel(channelId)))))
+  handle(IPC.apiAppPostDelete, (guildId, channelId, messageId) =>
+    withGuild(guildId, (id) => {
+      const ref = valid(parseAppPostRef(channelId, messageId))
+      return deps.api.deleteAppPost(id, ref.channelId, ref.messageId)
+    })
+  )
   handle(IPC.apiRacingTeamEdit, (guildId, game, input) => racing(guildId, game, (id, g) => deps.api.editRacingTeam(id, g, valid(parseRacingTeamEditInput(input)))))
   handle(IPC.apiRacingRosterAdd, (guildId, game, input) => racing(guildId, game, (id, g) => deps.api.addRosterMember(id, g, valid(parseRosterAddInput(input)))))
   handle(IPC.apiRacingRosterRemove, (guildId, game, team, userId) =>

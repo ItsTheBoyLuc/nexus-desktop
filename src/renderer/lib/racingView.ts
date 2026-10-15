@@ -293,7 +293,7 @@ export const ANNOUNCEMENT_AS_TYPED_TEXT =
   'The text is posted to Discord exactly as you type it: formatting characters (like ** for bold or _ for italics) render there. Server emoji written like :name: are converted. Only an https image link is accepted.'
 
 export const ANNOUNCEMENT_LOST_TEXT =
-  'Nexus did not get a clear answer, so the announcement may already be in the channel. It is not sent again with the same data, because that would post it twice. The app cannot read announcements back, so look at the channel in Discord before you post anything.'
+  'Nexus did not get a clear answer, so the announcement may already be in the channel. It is not sent again with the same data, because that would post it twice. Look at the list of posts made with the app (choose the channel) or at the channel in Discord before you post anything.'
 
 /** The text of an announcement whose answer was lost, with the ping caveat when roles were chosen. */
 export function announcementLostText(pinged: boolean): string {

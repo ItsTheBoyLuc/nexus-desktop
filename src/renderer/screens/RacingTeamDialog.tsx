@@ -121,7 +121,7 @@ export function RacingTeamDialog({ ctx, onClose, onCreated }: Props) {
         }
       >
         <p className="muted">
-          Like <code>/racing {game} team-create</code>. Nexus creates the team <strong>and a Discord role</strong> with this colour, named after the team; the members you add later get that role. A team cannot be edited or deleted afterwards.
+          Like <code>/racing {game} team-create</code>. Nexus creates the team <strong>and a Discord role</strong> with this colour, named after the team; the members you add later get that role. Its name and class can be edited afterwards (Edit team); its colour cannot, and a team cannot be deleted from the app.
         </p>
         {manage.denied ? (
           <Notice tone="danger" action={<Button variant="secondary" size="sm" onClick={manage.reset}>Check again</Button>}>

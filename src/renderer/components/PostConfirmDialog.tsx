@@ -58,7 +58,7 @@ function OpenDialog({ title, channelLabel, guildName, roles, confirmLabel, busy 
       }
     >
       <p>
-        This will be posted in <strong className="plain-text">{channelLabel}</strong> in {guildName} straight away. It cannot be edited or deleted from this app.
+        This will be posted in <strong className="plain-text">{channelLabel}</strong> in {guildName} straight away. It cannot be edited from this app; a post can be deleted again afterwards (that needs the Manage Server permission).
       </p>
 
       {roles.length === 0 ? (

@@ -1,20 +1,33 @@
-import { RotateCw, Send } from 'lucide-react'
+import { RotateCw, Send, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { ANNOUNCEMENT_LIMITS, validateAnnouncement } from '../../shared/validation'
 import type { AnnouncementDraft, AnnouncementField } from '../../shared/validation'
 import { Button, Card, EmptyState, LoadingRegion, Modal, Notice, PageHeader, Select, Skeleton, SuccessMark, TextField, useToast } from '../components'
 import { useGuildChannels } from '../hooks/data'
+import { useManageDenied } from '../hooks/useFiaDenied'
 import { describeError, mayHaveSucceeded, unwrap } from '../lib/errors'
+import { DELETE_PERMISSION_TEXT, invalidateAppPosts } from '../lib/appPosts'
+import { AppPostsSection } from './AppPostsSection'
+import { DeleteAppPostDialog } from './DeleteAppPostDialog'
 import { useServer } from './ServerRoute'
 
 const EMPTY_DRAFT: AnnouncementDraft = { title: '', message: '', channelId: '', imageUrl: '' }
 type Phase = 'editing' | 'confirming' | 'posting' | 'done'
 
+/** What the server answered for the announcement that was just posted: the ids it can be deleted with. `settled`: what became of it since. */
+interface PostedAnnouncement {
+  channelId: string
+  messageId: string
+  title: string
+  settled: 'live' | 'deleted' | 'unknown'
+}
+
 export function Announcement() {
   const { guild } = useServer()
   const channels = useGuildChannels(guild.id)
   const toast = useToast()
+  const manage = useManageDenied(guild.id)
 
   const [draft, setDraft] = useState<AnnouncementDraft>(EMPTY_DRAFT)
   const [touched, setTouched] = useState<ReadonlySet<AnnouncementField>>(new Set())
@@ -22,6 +35,10 @@ export function Announcement() {
   const [phase, setPhase] = useState<Phase>('editing')
   const [postError, setPostError] = useState<string | null>(null)
   const [postedTo, setPostedTo] = useState<string>('')
+  const [posted, setPosted] = useState<PostedAnnouncement | null>(null)
+  const [deleting, setDeleting] = useState(false)
+  // The channel whose posts the "Recent posts made with the app" section lists ('' = none chosen: nothing is read).
+  const [listChannel, setListChannel] = useState('')
 
   const validation = validateAnnouncement(draft)
   const errors = validation.ok ? {} : validation.errors
@@ -49,6 +66,8 @@ export function Announcement() {
     try {
       const result = await unwrap(window.nexus.api.postAnnouncement(guild.id, validation.value))
       setPostedTo(channelName(result.channelId))
+      setPosted({ channelId: result.channelId, messageId: result.messageId, title: validation.value.title, settled: 'live' })
+      invalidateAppPosts(guild.id, result.channelId) // a list of that channel that is on screen is out of date now
       setPhase('done')
       toast.push({ tone: 'success', title: 'Announcement posted', message: `Sent to #${channelName(result.channelId)}.` })
     } catch (error) {
@@ -66,6 +85,7 @@ export function Announcement() {
     setTouched(new Set())
     setSubmitted(false)
     setPostError(null)
+    setPosted(null)
     setPhase('editing')
   }
 
@@ -78,7 +98,16 @@ export function Announcement() {
           <SuccessMark size={40} className="success-panel__icon" />
           <h2>Announcement posted</h2>
           <p>It was sent to #{postedTo} in {guild.name}.</p>
-          <Button onClick={startAnother}>Post another</Button>
+          {posted?.settled === 'deleted' ? <p className="muted">It was deleted from Discord again.</p> : null}
+          {posted?.settled === 'unknown' ? <p className="muted">The list below was refreshed: look there for what is in the channel now.</p> : null}
+          <div className="dialog-actions">
+            <Button onClick={startAnother}>Post another</Button>
+            {posted?.settled === 'live' ? (
+              <Button variant="secondary" destructive icon={<Trash2 size={16} aria-hidden="true" />} disabled={manage.denied} title={manage.denied ? 'Needs the Manage Server permission' : DELETE_PERMISSION_TEXT} onClick={() => setDeleting(true)}>
+                Delete this announcement
+              </Button>
+            ) : null}
+          </div>
         </Card>
       ) : channels.status === 'loading' ? (
         <LoadingRegion label="Loading channels">
@@ -173,6 +202,29 @@ export function Announcement() {
           </form>
         </Card>
       )}
+
+      <AppPostsSection guild={guild} channelId={listChannel} onChannelChange={setListChannel} />
+
+      {deleting && posted ? (
+        <DeleteAppPostDialog
+          guildId={guild.id}
+          guildName={guild.name}
+          post={{ channelId: posted.channelId, messageId: posted.messageId, title: posted.title }}
+          channelName={channelName(posted.channelId) === 'channel' ? '' : channelName(posted.channelId)}
+          noun="announcement"
+          onCancel={() => setDeleting(false)}
+          onDeleted={() => {
+            setDeleting(false)
+            setPosted({ ...posted, settled: 'deleted' })
+          }}
+          onRefresh={() => {
+            // Already gone, a lost answer, or a list that was out of date: what the channel holds now is in the list.
+            setDeleting(false)
+            setPosted({ ...posted, settled: 'unknown' })
+            setListChannel(posted.channelId)
+          }}
+        />
+      ) : null}
 
       <Modal
         open={phase === 'confirming' || phase === 'posting'}

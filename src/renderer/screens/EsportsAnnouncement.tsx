@@ -1,4 +1,4 @@
-import { Send } from 'lucide-react'
+import { Send, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { ANNOUNCEMENT_LIMITS, validateAnnouncement } from '../../shared/validation'
@@ -8,12 +8,15 @@ import { Button, Card, EmptyState, LoadingRegion, Notice, PageHeader, PingRolesF
 import { useAuth } from '../hooks/auth'
 import { useGuildChannels, usePingRoles, useRacingTeamRoles, useServerSettings } from '../hooks/data'
 import { useSettings } from '../hooks/settings'
-import { useManagerDenied } from '../hooks/useFiaDenied'
+import { useManageDenied, useManagerDenied } from '../hooks/useFiaDenied'
 import { useWriteAction } from '../hooks/useWriteAction'
 import { describeChannelError, describeError, unwrap } from '../lib/errors'
+import { DELETE_PERMISSION_TEXT, invalidateAppPosts } from '../lib/appPosts'
 import { resolvePingRoles } from '../lib/pingRoles'
 import { ANNOUNCEMENT_AS_TYPED_TEXT, announcementFooter, announcementLostText, describeRacingError, MANAGER_RULE } from '../lib/racingView'
 import { judgeWrite } from '../lib/racingWriteFlow'
+import { AppPostsSection } from './AppPostsSection'
+import { DeleteAppPostDialog } from './DeleteAppPostDialog'
 import { EsportsNote, useEsports } from './EsportsRoute'
 import type { EsportsContext } from './EsportsRoute'
 
@@ -35,6 +38,7 @@ function AnnouncementScreen({ ctx }: { ctx: EsportsContext }) {
   const toast = useToast()
   const write = useWriteAction()
   const manager = useManagerDenied(ctx.guild.id, ctx.game)
+  const manage = useManageDenied(ctx.guild.id)
 
   const [draft, setDraft] = useState<AnnouncementDraft>(EMPTY_DRAFT)
   const [touched, setTouched] = useState<ReadonlySet<AnnouncementField>>(new Set())
@@ -45,7 +49,10 @@ function AnnouncementScreen({ ctx }: { ctx: EsportsContext }) {
   // The roles to ping (ids only, in memory only) and what was just posted, for the result dialog.
   const [pingIds, setPingIds] = useState<string[]>([])
   const [pingError, setPingError] = useState<string | null>(null)
-  const [posted, setPosted] = useState<{ result: RacingAnnouncementResult; requested: string[] } | null>(null)
+  const [posted, setPosted] = useState<{ result: RacingAnnouncementResult; requested: string[]; title: string } | null>(null)
+  // The announcement that is about to be deleted (it was just posted), and the channel whose posts the section lists ('' = none chosen: nothing is read).
+  const [deleting, setDeleting] = useState<{ channelId: string; messageId: string; title: string } | null>(null)
+  const [listChannel, setListChannel] = useState('')
 
   const channelList = channels.status === 'ready' ? channels.data : []
   // The channel last used for this game on this server, when it still exists. It is only a starting point: the user can pick another.
@@ -93,7 +100,8 @@ function AnnouncementScreen({ ctx }: { ctx: EsportsContext }) {
     const outcome = await write.run(() => unwrap(window.nexus.api.postRacingAnnouncement(ctx.guild.id, ctx.game, input)))
     if (!outcome) return
     if (outcome.ok) {
-      setPosted({ result: outcome.value, requested: pingIds })
+      setPosted({ result: outcome.value, requested: pingIds, title: validation.value.title })
+      invalidateAppPosts(ctx.guild.id, outcome.value.channelId) // a list of that channel that is on screen is out of date now
       toast.push({ tone: 'success', title: 'Announcement posted', message: `Sent to #${channelName(outcome.value.channelId) || 'the channel'}.` })
       // Ready for the next one: the text and the roles are cleared (so nobody is pinged twice by accident), the channel stays.
       setDraft({ ...EMPTY_DRAFT, channelId })
@@ -258,12 +266,14 @@ function AnnouncementScreen({ ctx }: { ctx: EsportsContext }) {
         <p className="muted">The text goes to Discord exactly as typed, so formatting characters render there and :name: emoji of this server are converted.</p>
       </PostConfirmDialog>
 
-      {posted ? (
+      <AppPostsSection guild={ctx.guild} channelId={listChannel} onChannelChange={setListChannel} />
+
+      {posted && !deleting ? (
         <PostResultDialog
           title="Announcement posted"
           intro={
             <>
-              It was sent to {channelName(posted.result.channelId) ? <strong>#{channelName(posted.result.channelId)}</strong> : 'the channel you chose'} in {ctx.guild.name}. The app cannot read announcements back.
+              It was sent to {channelName(posted.result.channelId) ? <strong>#{channelName(posted.result.channelId)}</strong> : 'the channel you chose'} in {ctx.guild.name}. It can be deleted again with the button below, or from the list of posts on this page.
             </>
           }
           guildId={ctx.guild.id}
@@ -272,7 +282,40 @@ function AnnouncementScreen({ ctx }: { ctx: EsportsContext }) {
           messageId={posted.result.messageId}
           pingedRoles={posted.result.pingedRoles}
           requestedRoleIds={posted.requested}
+          actions={
+            <Button
+              variant="secondary"
+              destructive
+              icon={<Trash2 size={16} aria-hidden="true" />}
+              disabled={manage.denied}
+              title={manage.denied ? 'Needs the Manage Server permission' : DELETE_PERMISSION_TEXT}
+              onClick={() => setDeleting({ channelId: posted.result.channelId, messageId: posted.result.messageId, title: posted.title })}
+            >
+              Delete this announcement
+            </Button>
+          }
           onClose={() => setPosted(null)}
+        />
+      ) : null}
+
+      {deleting ? (
+        <DeleteAppPostDialog
+          guildId={ctx.guild.id}
+          guildName={ctx.guild.name}
+          post={deleting}
+          channelName={channelName(deleting.channelId)}
+          noun="announcement"
+          onCancel={() => setDeleting(null)}
+          onDeleted={() => {
+            setDeleting(null)
+            setPosted(null)
+          }}
+          onRefresh={() => {
+            // Already gone, a lost answer, or a list that was out of date: what the channel holds now is in the list.
+            setListChannel(deleting.channelId)
+            setDeleting(null)
+            setPosted(null)
+          }}
         />
       ) : null}
     </div>

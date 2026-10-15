@@ -62,7 +62,12 @@ describe('participant data is never written to disk or browser storage', () => {
       'renderer/lib/pingRoles.ts',
       // milestone 7: editing a team (names of teams and roles)
       'renderer/screens/RacingTeamEditDialog.tsx',
-      'renderer/lib/teamEdit.ts'
+      'renderer/lib/teamEdit.ts',
+      // milestone 7: the posts made with the app (titles of posts, read from Discord, memory only)
+      'main/appPostsApi.ts',
+      'renderer/screens/AppPostsSection.tsx',
+      'renderer/screens/DeleteAppPostDialog.tsx',
+      'renderer/lib/appPosts.ts'
     ]
     for (const name of handlers) {
       const text = read(join(SRC, name))
