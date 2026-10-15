@@ -1,7 +1,7 @@
 {
   "name": "nexus",
   "productName": "Nexus",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Nexus - desktop management app for Discord league owners and staff",
   "private": true,
   "author": "Nexus",
