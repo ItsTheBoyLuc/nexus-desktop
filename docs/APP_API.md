@@ -11,7 +11,7 @@ bot's Flask app. This file is the contract: **every registered route is listed h
 **M5 — Esports teams for the five `/racing` games (teams, roster, events, results archive, attendance, announcements)** and
 **M6 — optional channel posting and role pings for the esports features (attendance, announcement, team / event / result cards), team-role picker, role member counts**.
 
-Contents: [Conventions](#conventions) · [Auth](#auth) · [Base](#base-endpoints) · [Pickers](#pickers) ·
+Contents: [Conventions](#conventions) · [Text limits](#text-limits) · [Auth](#auth) · [Base](#base-endpoints) · [Pickers](#pickers) ·
 [Overview](#overview) · [Server settings](#server-settings) · [Games & tiers](#games--tiers) · [F1 league](#f1-league) ·
 [Reports and penalties](#reports-and-penalties-m3) · [Attendance and sign-ups](#attendance-and-sign-ups-m4) · [Esports teams](#esports-teams-m5) · [Posting and role pings](#posting-to-a-channel-with-optional-role-pings-m6) · [Sync notes](#sync-with-discord)
 
@@ -23,7 +23,7 @@ Contents: [Conventions](#conventions) · [Auth](#auth) · [Base](#base-endpoints
 |---|---|
 | Base URL | `https://<bot-host>/api/app/v1` (all paths below are relative to it, except the two `/app/auth/*` pages) |
 | Auth | `Authorization: Bearer <access_token>` on everything except `/auth/exchange`, `/auth/refresh` and the `/app/auth/*` pages |
-| Body | JSON object, `Content-Type: application/json`, max 16 KiB |
+| Body | JSON object, `Content-Type: application/json`, max 16 KiB (64 KiB on the four endpoints that take a very long text: sign-up create, F1 attendance post, esports attendance create, penalty clear — see [Text limits](#text-limits)) |
 | IDs | Discord IDs (guild, channel, role, user, message) are **strings**, never numbers |
 | `game_key` / `tier_key` | 1–20 characters: letters, digits, underscore (`^[A-Za-z0-9_]{1,20}$`) |
 | Caching | every response is `Cache-Control: no-store`; no cookies are ever set or read; no CORS headers (call from the Electron main process) |
@@ -101,6 +101,50 @@ Every esports post entry (`esports.attendance.create`, `esports.announcement.pos
 (the roles pinged, `[]` for none) in `detail` (M6). A card posted together with a create (`channel_id` on the create endpoint) is logged as its own `esports.*.post` entry next to the create entry;
 a post that failed has no `.post` entry.
 Deleting an app post (M7) is **not** written to this store (the endpoint persists nothing); the server only writes one log line (guild, channel, message, user).
+
+---
+
+## Text limits
+
+Every text a request can carry, its limit in characters, and why. **Counting:** a character is one Unicode character (an emoji counts 1); the text is trimmed first.
+Where the bot shows a text with Discord markdown escaped (every `_` becomes `\_`), the **escaped** text must fit, so each `_` counts as 2 (marked ✱ below). A text that is
+accepted therefore always fits the Discord message it is posted in: Discord refuses an embed description over 4096, a field value over 1024, a title over 256, a footer over 2048,
+a whole embed over 6000 and message content over 2000 (the content of a post is only the role pings, at most 71 characters). Going over a limit is always `400` with the
+endpoint's usual `invalid_*` code; nothing is posted or stored. The slash commands keep their own, smaller limits.
+
+**Raised in this version** (they were 200–1000 before):
+
+| Field | Limit | Why |
+|---|---|---|
+| `notes` of `POST /racing/{game}/events` ✱ | 911 | The slash command `/racing {game} event-calendar` shows the notes in the same 1024-character field as date, time and class (at most 113 characters), so 1024 − 113. The event card is looser. |
+| `notes` of `POST /racing/{game}/results` ✱ | 714, and `result` + `drivers` + `notes` together at most 1014 | `/racing {game} team-stats` shows result, drivers and notes in ONE 1024-character field (10 characters of layout): 1014 − 100 (`result`) − 200 (`drivers`) = 714. Short result/drivers leave the rest unused; underscores in any of the three count twice. |
+| `description` of `POST /racing/{game}/attendance` | 3645 | Embed description. 6000 minus the rest of the post in its worst case (title 202, date 26, two member lists of 1024 with their headers, footer 41), because the member lists grow when drivers click Available / Not Available. |
+| `description` of `POST /f1/attendance/posts` | 2520 | Same reasoning for the F1 post: 6000 − 3480 (title 192, three lists of 1024 with headers, "regular drivers" line, footer). |
+| `description` of `POST /league/signups` | 4096 | Discord's embed-description limit. The rest of the panel is at most 1363, so the panel (and its grey "closed" copy) stays under 6000. |
+| `reason` of `POST /f1/penalties/points` ✱ | 1024 | One field ("📝 Reason") of the public Stewards Decision embed (the whole embed is under 1.7k). |
+| `reason` of `POST /f1/penalties/clear` | 4000 | Stored only (in the history line "Admin removed N pts: …"), never posted. Finite on purpose: the data lives in a size-limited database. |
+| `explanation` of `POST /f1/reports/{id}/decision` ✱ | 1024 | One field ("📋 Explanation") added to the existing report embed; with every field of the report at its own maximum the edited embed is still about 4.0k of 6000. |
+| `description` of `POST /f1/reports/{id}/decision` ✱ | 1024 | One field ("⚖️ Penalty Details") added the same way (the "🔴 Penalty Points" field is added next to it). |
+
+**Not changed** (and why):
+
+| Field | Limit | Why |
+|---|---|---|
+| `message` of `POST /announcement` and `POST /racing/{game}/announcement` | 1500 | Already above the range raised here; its title (150) and `image_url` (500) are labels. |
+| `reason` of `POST /f1/penalties/bans` | 300 | Not stored (only the first 120 characters go to the audit log), so a longer limit would only discard text. |
+| `reason` / `related_incident` / `evidence_url` of `POST /f1/dirty-drivers/reports` | 1000 / 200 / 300 | Same as the command: `/league driver-history` shows all three in one 1024-character field, which is already full at these numbers. |
+| `drivers` / `result` / `event_name` of `POST /racing/{game}/results` | 200 / 100 / 100 | Short lists and labels; they share the result field with `notes` (above). |
+| `name` · `date` · `time` · `class` of `POST /racing/{game}/events` | 100 · 20 · 20 · 30 | Labels (embed title, field names). |
+| `name` · `date` of `POST /racing/{game}/attendance` | 100 · 20 | Labels. |
+| `name` · `focus` of esports teams | 50 · 30 | Names are keys and also become the Discord role name. |
+| `division` · `season` · `round` · `circuit` of `POST /f1/attendance/posts`; division `name` | 50 · 10 · 10 · 100; 50 | Labels in the embed title. |
+| `title` · `close_date` of `POST /league/signups`; each sign-up question | 150 · 50; 45 (at most 2) | Title, footer text; a form label is cut at 45 and is the key of the answer. |
+| `driver` · `penalty_type` of the penalty endpoints | 100 · 100 | Names and short labels. |
+| calendar and game names, labels, categories, points-system name, footer name | 100 · 50 · 50 · 100 · 50 | Names and labels. |
+| `ping_role_ids` | at most 3 roles | One message; keeps the content under 2000. |
+
+**Request body:** 16 KiB, except 64 KiB for `POST /league/signups`, `POST /f1/attendance/posts`, `POST /racing/{game}/attendance` and `POST /f1/penalties/clear`. 64 KiB is what the
+longest of those needs when every character is an emoji written as a 12-byte JSON escape (about 52 KB); every other request, even with all its fields at the maximum, stays under 16 KiB.
 
 ---
 
@@ -830,7 +874,7 @@ Decides a report with **the effect of the Discord buttons** (staff — the butto
 { "decision": "penalty_issued", "description": "5 second time penalty", "driver": "alice", "penalty_points": 3, "season": 5 }
 ```
 
-* `explanation` (1–500) is required for no further action; `description` (1–500) for a penalty. `driver` (1–100, the driver who receives
+* `explanation` (1–1024) is required for no further action; `description` (1–1024) for a penalty (each `_` counts as 2, see [Text limits](#text-limits)). `driver` (1–100, the driver who receives
   points; required when `penalty_points` > 0), `penalty_points` (0–999, default 0) and `season` (1–99999) are optional; without `season`
   the season in the report's own title ("🚨 Season 5 Round 3 — …") is used, like the button, then the current season.
 
@@ -937,7 +981,7 @@ shows the last 10).
 { "driver": "Max_V", "penalty_type": "Drive-Through", "points": 3, "reason": "Contact at T1", "season": 5, "channel_id": "777…" }
 ```
 
-`driver` (1–100), `penalty_type` (1–100), `reason` (1–300), `points` (0–999), `season` optional, `channel_id` optional. The points are
+`driver` (1–100), `penalty_type` (1–100), `reason` (1–1024, each `_` counts as 2), `points` (0–999), `season` optional, `channel_id` optional. The points are
 added (history entry "Season N — Manual Penalty", expiry = `expiry_races` from round 0, like the command) and the ban thresholds are checked
 in the same locked write. With `channel_id` the public **"⚖️ Stewards Decision — PENALTY ISSUED"** embed is posted there (the command posts
 it in the channel it was used in); without it nothing is posted. The ban text is **returned, not posted** — the command shows it only to the person
@@ -960,7 +1004,7 @@ Errors: `400 invalid_driver | invalid_penalty_type | invalid_reason | invalid_po
 `/league clear-penalty` (**FIA or Administrator**, needs `"confirm": true`). Request: `{ "driver": "alice", "points": 3, "reason": "Appeal upheld",
 "season": 5, "confirm": true }`. Without `points` **all** of the driver's points and history for that season are cleared and both bans lifted;
 with `points` (1–99999) that many are removed (never below 0), the history is kept with an "Admin removed N pts" entry, and the ban flags are
-recalculated against the settings. `reason` is required (1–300). Writes `penalty_points.json` only — the season settings are untouched.
+recalculated against the settings. `reason` is required (1–4000, stored only). Writes `penalty_points.json` only — the season settings are untouched.
 
 Response `200`: `{ "driver", "season", "mode": "all" | "partial", "points_removed", "remaining" }`.
 Errors: `403 fia_required`, `400 invalid_driver | invalid_reason | invalid_points | invalid_season | confirm_required`, `404 driver_not_found`.
@@ -1099,7 +1143,7 @@ The embed is built by the command's own builder, so it is identical (and the but
 
 Request: `{ "channel_id": "777…", "division": "Elite", "season": "16", "round": "5", "circuit": "Zandvoort", "description": "Sprint weekend" }`.
 `channel_id` must be a text channel from `GET /channels`. `season` and `round` are 1–10 characters (a number is accepted and stored as text, like the modal),
-`circuit` 1–100, `description` optional ≤ 200, `division` must already exist (create it with `PUT /f1/attendance/divisions`).
+`circuit` 1–100, `description` optional ≤ 2520, `division` must already exist (create it with `PUT /f1/attendance/divisions`).
 Regular drivers who are no longer in the server are skipped, like the command.
 
 Response `201`: `{ "post": { …as in the single read… }, "channel_id": "777…" }`. The message ID in `post.message_id` is the only handle to the post: the channel is not stored.
@@ -1177,7 +1221,7 @@ Everyone who signed up, in sign-up order, with all answers (`/league signup-list
 Posts the same sign-up panel as `/league signup` — the same embed and the same persistent **"✅ Start Sign-up"** button (`nexus:signup_start`) — and registers the sign-up.
 
 Request: `{ "title": "Season 16 Sign-up", "description": "Rules…", "channel_id": "777…", "confirmation_channel_id": "777…", "close_date": "2026-06-01" }`.
-`title` 1–150 (single line), `description` optional ≤ 1000, `close_date` optional free text ≤ 50 (shown in the panel footer, like the command; nothing closes automatically),
+`title` 1–150 (single line), `description` optional ≤ 4096, `close_date` optional free text ≤ 50 (shown in the panel footer, like the command; nothing closes automatically),
 `channel_id` a text channel from `GET /channels` where the panel is posted. The "Info Requested" list on the panel shows the server's custom questions, or the defaults.
 
 **How the confirmation channel works (same as the command).** Every time a driver finishes a sign-up the bot posts a confirmation embed to the channel
@@ -1398,7 +1442,7 @@ Query: `limit` (1–100, default 25), `offset`.
 
 `/racing {game} event-add`. Needs **Manage Server or Administrator**.
 Request: `{ "name": "Daytona 24", "date": "2026-09-14", "time": "20:00 UTC", "class": "GT3", "notes": "…" }` — `name` 1–100, `date` 1–20, `time` 1–20 (both free text, like the command),
-`class` optional free text ≤ 30 (stored as `class` for lmu and `series` for the other games), `notes` optional ≤ 300. Response `201`: `{ "game", "event": { … } }`.
+`class` optional free text ≤ 30 (stored as `class` for lmu and `series` for the other games), `notes` optional ≤ 911 (each `_` counts as 2). Response `201`: `{ "game", "event": { … } }`.
 **M6:** optional `channel_id` + `ping_role_ids` post the event's card too — see [Posting a card with a create](#posting-a-card-together-with-a-create-m6); the response gains `post` or `post_error`.
 Errors: `400 invalid_name | invalid_date | invalid_time | invalid_class | invalid_notes | invalid_channel | invalid_ping_roles | too_many_ping_roles`, `403 manage_server_required | bot_cannot_send | forbidden | role_not_pingable | bot_cannot_mention_role`,
 `404 channel_not_found | role_not_found`, `429 rate_limited`.
@@ -1418,7 +1462,7 @@ Errors: `400 invalid_team | invalid_limit | invalid_offset`, `404 team_not_found
 
 `/racing {game} results-log`. Needs **Manage Server or Administrator**.
 Request: `{ "team": "Apex Racing", "event_name": "Daytona 24", "result": "P3 in GT3", "drivers": "alice, bob", "notes": "…" }` — `event_name` 1–100, `result` 1–100, `drivers` 1–200 (free text, as typed in the command),
-`notes` optional ≤ 300. Response `201`: `{ "game", "result": { … } }`.
+`notes` optional ≤ 714, and `result` + `drivers` + `notes` together ≤ 1014 (each `_` counts as 2). Response `201`: `{ "game", "result": { … } }`.
 **M6:** optional `channel_id` + `ping_role_ids` post the result's card too — see [Posting a card with a create](#posting-a-card-together-with-a-create-m6); the response gains `post` or `post_error`.
 Errors: `400 invalid_team | invalid_event_name | invalid_result | invalid_drivers | invalid_notes | invalid_channel | invalid_ping_roles | too_many_ping_roles`,
 `403 manage_server_required | bot_cannot_send | forbidden | role_not_pingable | bot_cannot_mention_role`, `404 team_not_found | channel_not_found | role_not_found`, `429 rate_limited`.
@@ -1442,7 +1486,7 @@ Errors: `400 invalid_message_id`, `404 post_not_found`.
 ### POST /guilds/{guild_id}/racing/{game}/attendance
 
 `/racing {game} attendance`: posts the same embed with the same persistent **Available / Not Available** buttons. Needs **Manage Server, Administrator, or a Manager / Coach of one of this game's teams**.
-Request: `{ "channel_id": "777…", "name": "Tuesday Practice", "date": "2026-09-14", "description": "…" }` — `channel_id` a text channel from `GET /channels`, `name` 1–100, `date` 1–20 (free text), `description` optional ≤ 300.
+Request: `{ "channel_id": "777…", "name": "Tuesday Practice", "date": "2026-09-14", "description": "…" }` — `channel_id` a text channel from `GET /channels`, `name` 1–100, `date` 1–20 (free text), `description` optional ≤ 3645.
 Posted as typed (Discord formatting characters render; member names in the lists are escaped by the shared embed builder). Response `201`: `{ "game", "post": { …as in the single read… }, "channel_id" }`; `post.message_id` is the handle (the channel is not stored).
 If the record cannot be saved after the message was sent, the message is deleted again.
 **M6:** optional `ping_role_ids` (see [Posting to a channel, with optional role pings](#posting-to-a-channel-with-optional-role-pings-m6)); the response gains `"pinged_roles": [ { "id", "name" } ]`.
