@@ -1,5 +1,6 @@
 import { useId, useState } from 'react'
 import { ADVANCE_LIMITS, BAN_LIMITS, CLEAR_LIMITS, MANUAL_LIMITS, validateAdvanceDraft, validateBanDraft, validateClearDraft } from '../../shared/penaltyValidation'
+import { LIMIT_NOTES } from '../../shared/textLimits'
 import type { AdvanceRaceResult, BanResult, ClearPointsResult } from '../../shared/types'
 import { Button, Modal, Notice, TextField } from '../components'
 import { confirmed, describeAdvanceEffect, describeBanEffect, describeClearEffect } from '../lib/penaltyActions'
@@ -77,7 +78,8 @@ export function ClearPointsDialog({ guildId, season, currentSeason, denied, onDe
               ))}
             </ul>
             <Notice tone="warning">
-              Reason that is kept: <em>{result.value.reason}</em>. Cleared points cannot be brought back from the app.
+              <span>Reason that is kept:</span> <span className="text-clamp text-clamp--wide">{result.value.reason}</span>
+              <span>Cleared points cannot be brought back from the app.</span>
             </Notice>
           </>
         )
@@ -112,7 +114,7 @@ export function ClearPointsDialog({ guildId, season, currentSeason, denied, onDe
           {mode === 'partial' ? (
             <TextField label="Points to remove" inputMode="numeric" value={points} hint={`${CLEAR_LIMITS.pointsMin} to ${CLEAR_LIMITS.pointsMax}. The total never goes below 0.`} error={fields.show('points', errors['points'])} autoComplete="off" onChange={(event) => { setPoints(event.target.value); touch() }} />
           ) : null}
-          <TextField label="Reason" value={reason} maxLength={CLEAR_LIMITS.reasonMax} error={fields.show('reason', errors['reason'])} autoComplete="off" onChange={(event) => { setReason(event.target.value); touch() }} />
+          <TextField multiline label="Reason" rows={4} value={reason} maxLength={CLEAR_LIMITS.reasonMax} limitNote={LIMIT_NOTES.stored} error={fields.show('reason', errors['reason'])} onChange={(event) => { setReason(event.target.value); touch() }} />
           {fields.show('season', errors['season']) ? <Notice tone="danger">{fields.show('season', errors['season'])}</Notice> : null}
         </>
       }

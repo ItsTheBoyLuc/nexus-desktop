@@ -1,6 +1,7 @@
 import { ArrowLeft, ExternalLink as ExternalIcon, Plus, RotateCw } from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
 import { ATTENDANCE_POST_LIMITS, validatePostDraft, validatePostFilters } from '../../shared/attendanceValidation'
+import { LIMIT_NOTES } from '../../shared/textLimits'
 import type { PostField, PostFilterDraft } from '../../shared/attendanceValidation'
 import type { AttendanceDivision, AttendanceDriver, AttendancePostResult, AttendancePostSummary } from '../../shared/types'
 import { Badge, Button, Card, CopyButton, EmptyState, ErrorState, LoadingRegion, Modal, Notice, SearchSelect, Select, Skeleton, SortHeader, Stagger, TextField, useToast } from '../components'
@@ -137,7 +138,7 @@ export function PostsList({ guildId, divisions, onOpen, onCreate }: { guildId: s
                     </th>
                     <td>
                       {post.circuit}
-                      {post.description ? <span className="table__note plain-text">{post.description}</span> : null}
+                      {post.description ? <span className="table__note text-clamp">{post.description}</span> : null}
                     </td>
                     <td>{post.division ?? <span className="muted">No division</span>}</td>
                     <td className="table__num">{post.counts.present}</td>
@@ -340,7 +341,7 @@ export function PostDialog({ guildId, divisions, onClose, onCreated }: { guildId
         <TextField label="Round" value={draft.round} maxLength={ATTENDANCE_POST_LIMITS.roundMax} placeholder="5" error={show('round')} autoComplete="off" onChange={(event) => change('round', event.target.value)} />
         <TextField label="Circuit" value={draft.circuit} maxLength={ATTENDANCE_POST_LIMITS.circuitMax} placeholder="Zandvoort" error={show('circuit')} autoComplete="off" onChange={(event) => change('circuit', event.target.value)} />
       </div>
-      <TextField multiline label="Description" optional rows={3} value={draft.description} maxLength={ATTENDANCE_POST_LIMITS.descriptionMax} error={show('description')} onChange={(event) => change('description', event.target.value)} />
+      <TextField multiline label="Description" optional rows={3} value={draft.description} maxLength={ATTENDANCE_POST_LIMITS.descriptionMax} limitNote={LIMIT_NOTES.discordEmbed} error={show('description')} onChange={(event) => change('description', event.target.value)} />
       {problem ? <Notice tone="danger">{problem}</Notice> : null}
     </Modal>
   )

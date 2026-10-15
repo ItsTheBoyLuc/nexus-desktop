@@ -107,6 +107,7 @@
 .field__optional { color: var(--color-muted); font-weight: 400; }
 .field__hint { font-size: 12px; color: var(--color-muted); }
 .field__error { font-size: 12px; color: var(--color-danger); }
+.field__limit-note { margin: 0; overflow-wrap: anywhere; }
 .field__row { display: flex; justify-content: space-between; gap: var(--space-2); }
 .field__counter { font-size: 12px; color: var(--color-muted); font-variant-numeric: tabular-nums; }
 .field__counter--over { color: var(--color-danger); }

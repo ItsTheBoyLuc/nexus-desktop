@@ -3,6 +3,7 @@ import { useId, useState } from 'react'
 import type { ReactNode } from 'react'
 import { MANUAL_LIMITS, validateManualPointsDraft } from '../../shared/penaltyValidation'
 import type { ManualPointsDraft, ManualPointsField } from '../../shared/penaltyValidation'
+import { LIMIT_NOTES, UNDERSCORE_NOTE } from '../../shared/textLimits'
 import type { ManualPointsResult } from '../../shared/types'
 import { Button, Modal, Notice, SearchSelect, TextField, useToast } from '../components'
 import { useGuildChannels } from '../hooks/data'
@@ -204,7 +205,7 @@ export function ManualPointsDialog({ guildId, prefill = {}, lockDriver = false, 
         <TextField label="Penalty type" value={draft.penaltyType} maxLength={MANUAL_LIMITS.typeMax} placeholder="Drive-Through" error={show('penaltyType')} autoComplete="off" onChange={(event) => change('penaltyType', event.target.value)} />
         <TextField label="Points" inputMode="numeric" value={draft.points} placeholder="3" hint={`0 to ${MANUAL_LIMITS.pointsMax}. 0 records nothing and needs a channel.`} error={show('points')} autoComplete="off" onChange={(event) => change('points', event.target.value)} />
       </div>
-      <TextField label="Reason" value={draft.reason} maxLength={MANUAL_LIMITS.reasonMax} error={show('reason')} autoComplete="off" onChange={(event) => change('reason', event.target.value)} />
+      <TextField multiline label="Reason" rows={3} value={draft.reason} maxLength={MANUAL_LIMITS.reasonMax} escaped limitNote={`${LIMIT_NOTES.discordField} ${UNDERSCORE_NOTE}`} error={show('reason')} onChange={(event) => change('reason', event.target.value)} />
       <div className="field-pair">
         <TextField label="Season" optional inputMode="numeric" value={draft.season} placeholder="Current season" hint="Empty: the server's current season." error={show('season')} autoComplete="off" onChange={(event) => change('season', event.target.value)} />
         <SearchSelect

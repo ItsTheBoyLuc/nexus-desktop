@@ -1,6 +1,7 @@
 import { ArrowLeft, CalendarCheck, Plus, RotateCw } from 'lucide-react'
 import { useCallback, useState } from 'react'
 import { RACING_LIMITS, validateRacingAttendanceDraft } from '../../shared/racingValidation'
+import { LIMIT_NOTES } from '../../shared/textLimits'
 import type { RacingAttendanceField } from '../../shared/racingValidation'
 import type { RacingAttendanceInput, RacingAttendanceResult, RacingAttendeeRow } from '../../shared/types'
 import { Badge, Button, Card, EmptyState, ErrorState, LoadingRegion, Modal, Notice, PageHeader, PingRolesField, PostConfirmDialog, PostResultDialog, SearchSelect, Select, Skeleton, SortHeader, Stagger, TextField, useToast } from '../components'
@@ -116,7 +117,7 @@ function PostsList({ ctx, onOpen, onCreate, managerDenied }: { ctx: EsportsConte
                       <button type="button" className="link-btn" onClick={() => onOpen(post.messageId)} aria-label={`Open the attendance post ${post.name}, ${post.date}`}>
                         <span className="plain-text">{post.name}</span>
                       </button>
-                      {post.description ? <span className="table__note plain-text">{post.description}</span> : null}
+                      {post.description ? <span className="table__note text-clamp">{post.description}</span> : null}
                     </th>
                     <td className="plain-text">{post.date}</td>
                     <td className="table__num">{post.counts.available}</td>
@@ -384,7 +385,7 @@ function CreatePostDialog({ ctx, onClose, onCreated }: { ctx: EsportsContext; on
               emptyText="No channel found. Nexus can only post where it has permission."
               onChange={(value) => change('channelId', value)}
             />
-            <TextField multiline label="Description" optional rows={3} value={draft.description} maxLength={RACING_LIMITS.attendanceDescriptionMax} error={show('description')} onChange={(event) => change('description', event.target.value)} />
+            <TextField multiline label="Description" optional rows={3} value={draft.description} maxLength={RACING_LIMITS.attendanceDescriptionMax} limitNote={LIMIT_NOTES.discordEmbed} error={show('description')} onChange={(event) => change('description', event.target.value)} />
             <PingRolesField guildId={ctx.guild.id} gameLabel={ctx.gameLabel} roles={roles} teamRoles={teamRoles} ids={pingIds} onChange={changePings} error={pingError} />
             {problem ? <Notice tone="danger">{problem}</Notice> : null}
           </>
@@ -444,7 +445,7 @@ function PostCreatedDialog({ ctx, created, onClose, onView }: { ctx: EsportsCont
           {result.post.description ? (
             <div className="facts__wide">
               <dt>Description</dt>
-              <dd className="plain-text">{result.post.description}</dd>
+              <dd className="text-clamp text-clamp--wide">{result.post.description}</dd>
             </div>
           ) : null}
           <div>

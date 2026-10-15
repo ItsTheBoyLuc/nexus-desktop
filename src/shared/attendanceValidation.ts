@@ -2,6 +2,7 @@ import type { AttendancePostFilters, AttendancePostInput, DivisionInput, SignupI
 import { codePointLength, isValidSnowflake, singleLineProblem } from './validation'
 import type { FormResult } from './validation'
 import { paragraphProblem } from './penaltyValidation'
+import { TEXT_LIMITS } from './textLimits'
 
 /**
  * Validation of the attendance and sign-up forms (milestone 4). Every limit comes from docs/APP_API.md, so a mistake
@@ -10,8 +11,8 @@ import { paragraphProblem } from './penaltyValidation'
  */
 
 export const DIVISION_LIMITS = { nameMax: 50, listMax: 25 } as const
-export const ATTENDANCE_POST_LIMITS = { seasonMax: 10, roundMax: 10, circuitMax: 100, descriptionMax: 200, pageMin: 1, pageMax: 100 } as const
-export const SIGNUP_LIMITS = { titleMax: 150, descriptionMax: 1000, closeDateMax: 50, pageMin: 1, pageMax: 100 } as const
+export const ATTENDANCE_POST_LIMITS = { seasonMax: 10, roundMax: 10, circuitMax: 100, descriptionMax: TEXT_LIMITS.f1AttendanceDescription, pageMin: 1, pageMax: 100 } as const
+export const SIGNUP_LIMITS = { titleMax: 150, descriptionMax: TEXT_LIMITS.signupDescription, closeDateMax: 50, pageMin: 1, pageMax: 100 } as const
 /** The documented defaults, used only when the server's own `max_questions` / `max_question_length` are not known yet. */
 export const QUESTION_DEFAULTS = { max: 2, length: 45 } as const
 /** A Discord form label is cut at 45 characters and the label is the key of the answer: two labels that share their first 45 collide. */

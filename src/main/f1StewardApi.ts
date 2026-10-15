@@ -1,4 +1,5 @@
 import { isReportId, isReportStatus } from '../shared/penaltyValidation'
+import { TEXT_LIMITS, utf16Units } from '../shared/textLimits'
 import type {
   AdvanceRaceInput,
   AdvanceRaceResult,
@@ -77,6 +78,10 @@ const intOrNull = (value: unknown): number | null => (isInt(value) ? value : nul
 const countOr = (value: unknown, fallback: number): number => (isCount(value) ? value : fallback)
 
 const TEXT_MAX = 2000
+/** The penalty text of a decision (docs: up to 1024 characters). */
+const PENALTY_TEXT_MAX = utf16Units(TEXT_LIMITS.decisionDescription)
+/** A history line holds the reason (a clear reason is up to 4000) after "Admin removed N pts: ", which is under 64 characters. */
+const HISTORY_REASON_MAX = utf16Units(TEXT_LIMITS.penaltyClearReason + 64)
 
 function parseBan(value: unknown): BanState {
   if (value === 'race' || value === 'quali' || value === 'none') return value
@@ -105,8 +110,8 @@ function parseReport(json: unknown): Report {
     evidenceImg: optionalText(json['evidence_img'], 1000),
     status,
     decided: typeof json['decided'] === 'boolean' ? json['decided'] : status === 'penalty_issued' || status === 'no_further_action',
-    penalty: optionalText(json['penalty'], 600),
-    decision: isRecord(decision) ? { type: str(decision['type'], 40), penalty: optionalText(decision['penalty'], 600) } : null,
+    penalty: optionalText(json['penalty'], PENALTY_TEXT_MAX),
+    decision: isRecord(decision) ? { type: str(decision['type'], 40), penalty: optionalText(decision['penalty'], PENALTY_TEXT_MAX) } : null,
     threadName: str(json['thread_name'], 200),
     messageId: isValidSnowflake(json['message_id']) ? json['message_id'] : null,
     timestamp: str(json['timestamp'], 40)
@@ -193,7 +198,7 @@ function parseHistoryItem(json: unknown): PenaltyHistoryItem {
   return {
     index: countOr(json['index'], 0),
     points: json['points'],
-    reason: str(json['reason'], TEXT_MAX),
+    reason: str(json['reason'], HISTORY_REASON_MAX),
     race: str(json['race'], 300),
     expiresAfterRace: intOrNull(json['expires_after_race']),
     timestamp: str(json['timestamp'], 40)

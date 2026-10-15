@@ -1,5 +1,6 @@
 import { useId } from 'react'
 import type { InputHTMLAttributes, TextareaHTMLAttributes } from 'react'
+import { codePointLength, escapedLength } from '../../shared/validation'
 
 interface FieldCommon {
   label: string
@@ -8,8 +9,12 @@ interface FieldCommon {
   error?: string | null
   /** Shows "(optional)" after the label. */
   optional?: boolean
-  /** Shows a live character counter against a maximum (counted after trimming, like the backend). */
+  /** Shows a live character counter against a maximum (counted after trimming, in Unicode characters, like the backend). */
   maxLength?: number
+  /** The docs mark this field with a star: the bot escapes the text, so each underscore counts as 2 (also in the counter). */
+  escaped?: boolean
+  /** Where the limit comes from (for example Discord), shown under the field next to the counter. */
+  limitNote?: string
 }
 
 type InputFieldProps = FieldCommon & { multiline?: false } & Omit<InputHTMLAttributes<HTMLInputElement>, 'size' | 'maxLength'>
@@ -17,14 +22,16 @@ type AreaFieldProps = FieldCommon & { multiline: true } & Omit<TextareaHTMLAttri
 export type TextFieldProps = InputFieldProps | AreaFieldProps
 
 export function TextField(props: TextFieldProps) {
-  const { label, hint, error, optional, maxLength, multiline, className, ...rest } = props
+  const { label, hint, error, optional, maxLength, escaped, limitNote, multiline, className, ...rest } = props
   const id = useId()
   const hintId = `${id}-hint`
   const errorId = `${id}-error`
-  const describedBy = [hint ? hintId : '', error ? errorId : ''].filter(Boolean).join(' ') || undefined
+  const noteId = `${id}-note`
+  const describedBy = [hint ? hintId : '', error ? errorId : '', limitNote ? noteId : ''].filter(Boolean).join(' ') || undefined
 
   const value = typeof rest.value === 'string' ? rest.value : ''
-  const used = value.trim().length
+  const trimmed = value.trim()
+  const used = escaped ? escapedLength(trimmed) : codePointLength(trimmed)
   const over = maxLength !== undefined && used > maxLength
 
   const controlProps = {
@@ -58,10 +65,15 @@ export function TextField(props: TextFieldProps) {
         </div>
         {maxLength !== undefined ? (
           <span className={`field__counter${over ? ' field__counter--over' : ''}`} aria-hidden="true">
-            {used}/{maxLength}
+            {used} / {maxLength}
           </span>
         ) : null}
       </div>
+      {limitNote ? (
+        <p className="field__hint field__limit-note" id={noteId}>
+          {limitNote}
+        </p>
+      ) : null}
     </div>
   )
 }

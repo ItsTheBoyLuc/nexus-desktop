@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { TEXT_LIMITS } from './textLimits'
 import { validateResultsDraft } from './f1Validation'
 import {
   evidenceUrlProblem,
@@ -69,11 +70,11 @@ describe('the decision form', () => {
   const nfa: DecisionDraft = { decision: 'no_further_action', description: '', explanation: 'No infringement found.', driver: '', points: '', season: '' }
   const penalty: DecisionDraft = { decision: 'penalty_issued', description: '5 second time penalty', explanation: '', driver: 'alice', points: '3', season: '5' }
 
-  it('no further action needs an explanation of 1 to 500 characters and sends nothing else', () => {
+  it(`no further action needs an explanation of 1 to ${TEXT_LIMITS.decisionExplanation} characters and sends nothing else`, () => {
     expect(validateDecisionDraft(nfa)).toEqual({ ok: true, value: { decision: 'no_further_action', explanation: 'No infringement found.' } })
     expect(errorsOf(validateDecisionDraft({ ...nfa, explanation: '   ' }))).toEqual(['explanation'])
-    expect(errorsOf(validateDecisionDraft({ ...nfa, explanation: long(501) }))).toEqual(['explanation'])
-    expect(validateDecisionDraft({ ...nfa, explanation: long(500) }).ok).toBe(true)
+    expect(errorsOf(validateDecisionDraft({ ...nfa, explanation: long(TEXT_LIMITS.decisionExplanation + 1) }))).toEqual(['explanation'])
+    expect(validateDecisionDraft({ ...nfa, explanation: long(TEXT_LIMITS.decisionExplanation) }).ok).toBe(true)
     // the other mode's fields do not matter
     expect(validateDecisionDraft({ ...nfa, driver: long(500), points: 'x', season: 'y' }).ok).toBe(true)
   })
@@ -81,7 +82,7 @@ describe('the decision form', () => {
   it('a penalty needs a description; points, driver and season are checked as the API does', () => {
     expect(validateDecisionDraft(penalty)).toEqual({ ok: true, value: { decision: 'penalty_issued', description: '5 second time penalty', driver: 'alice', penaltyPoints: 3, season: 5 } })
     expect(errorsOf(validateDecisionDraft({ ...penalty, description: '' }))).toEqual(['description'])
-    expect(errorsOf(validateDecisionDraft({ ...penalty, description: long(501) }))).toEqual(['description'])
+    expect(errorsOf(validateDecisionDraft({ ...penalty, description: long(TEXT_LIMITS.decisionDescription + 1) }))).toEqual(['description'])
   })
 
   it('0 points (or none) needs no driver and no season: the points are simply not applied', () => {
@@ -115,12 +116,12 @@ describe('manual penalty points', () => {
     expect(validateManualPointsDraft({ ...draft, season: '5', channelId: D1 })).toMatchObject({ ok: true, value: { season: 5, channelId: D1 } })
   })
 
-  it('applies the documented limits (driver 100, type 100, reason 300, points 0-999)', () => {
+  it(`applies the documented limits (driver 100, type 100, reason ${TEXT_LIMITS.penaltyPointsReason}, points 0-999)`, () => {
     expect(errorsOf(validateManualPointsDraft({ ...draft, driver: '' }))).toEqual(['driver'])
     expect(errorsOf(validateManualPointsDraft({ ...draft, driver: long(101) }))).toEqual(['driver'])
     expect(errorsOf(validateManualPointsDraft({ ...draft, penaltyType: long(101) }))).toEqual(['penaltyType'])
-    expect(errorsOf(validateManualPointsDraft({ ...draft, reason: long(301) }))).toEqual(['reason'])
-    expect(validateManualPointsDraft({ ...draft, reason: long(300), penaltyType: long(100), driver: long(100) }).ok).toBe(true)
+    expect(errorsOf(validateManualPointsDraft({ ...draft, reason: long(TEXT_LIMITS.penaltyPointsReason + 1) }))).toEqual(['reason'])
+    expect(validateManualPointsDraft({ ...draft, reason: long(TEXT_LIMITS.penaltyPointsReason), penaltyType: long(100), driver: long(100) }).ok).toBe(true)
     expect(errorsOf(validateManualPointsDraft({ ...draft, points: '1000' }))).toEqual(['points'])
     expect(errorsOf(validateManualPointsDraft({ ...draft, season: '0' }))).toEqual(['season'])
     expect(errorsOf(validateManualPointsDraft({ ...draft, channelId: 'general' }))).toEqual(['channelId'])
@@ -145,9 +146,9 @@ describe('clearing points', () => {
     expect(validateClearDraft({ ...all, points: 'nonsense' }).ok).toBe(true)
   })
 
-  it('the reason is required (1 to 300) and never contains the confirm flag: the screen adds that after its dialog', () => {
+  it(`the reason is required (1 to ${TEXT_LIMITS.penaltyClearReason}) and never contains the confirm flag: the screen adds that after its dialog`, () => {
     expect(errorsOf(validateClearDraft({ ...all, reason: '' }))).toEqual(['reason'])
-    expect(errorsOf(validateClearDraft({ ...all, reason: long(301) }))).toEqual(['reason'])
+    expect(errorsOf(validateClearDraft({ ...all, reason: long(TEXT_LIMITS.penaltyClearReason + 1) }))).toEqual(['reason'])
     const ok = validateClearDraft(all)
     expect(ok.ok && 'confirm' in ok.value).toBe(false)
   })

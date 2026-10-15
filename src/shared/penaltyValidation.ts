@@ -13,7 +13,8 @@ import type {
   ReportStatus
 } from './types'
 import { REPORT_STATUSES } from './types'
-import { codePointLength, isValidSnowflake, singleLineProblem } from './validation'
+import { TEXT_LIMITS } from './textLimits'
+import { codePointLength, escapedLength, isValidSnowflake, singleLineProblem } from './validation'
 import type { FormResult } from './validation'
 
 /**
@@ -22,10 +23,10 @@ import type { FormResult } from './validation'
  * of them again, and the main process re-checks everything the renderer sends (see penaltyInputs.ts).
  */
 
-export const DECISION_LIMITS = { textMax: 500, driverMax: 100, pointsMin: 0, pointsMax: 999 } as const
+export const DECISION_LIMITS = { explanationMax: TEXT_LIMITS.decisionExplanation, descriptionMax: TEXT_LIMITS.decisionDescription, driverMax: 100, pointsMin: 0, pointsMax: 999 } as const
 export const SEASON_LIMITS = { min: 1, max: 99999 } as const
-export const MANUAL_LIMITS = { driverMax: 100, typeMax: 100, reasonMax: 300, pointsMin: 0, pointsMax: 999 } as const
-export const CLEAR_LIMITS = { reasonMax: 300, pointsMin: 1, pointsMax: 99999 } as const
+export const MANUAL_LIMITS = { driverMax: 100, typeMax: 100, reasonMax: TEXT_LIMITS.penaltyPointsReason, pointsMin: 0, pointsMax: 999 } as const
+export const CLEAR_LIMITS = { reasonMax: TEXT_LIMITS.penaltyClearReason, pointsMin: 1, pointsMax: 99999 } as const
 export const BAN_LIMITS = { reasonMax: 300 } as const
 export const ADVANCE_LIMITS = { min: 0, max: 9999 } as const
 export const PENALTY_SETTINGS_LIMITS = { seasonMin: 1, seasonMax: 99999, otherMin: 1, otherMax: 999 } as const
@@ -36,12 +37,15 @@ export const REPORT_FILTER_LIMITS = { seasonMax: 20, roundMax: 10, driverMax: 10
 // eslint-disable-next-line no-control-regex
 const CONTROL_EXCEPT_NEWLINES = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/
 
-/** null when fine, else the reason. Newlines are allowed (a paragraph), other control characters are not. */
-export function paragraphProblem(value: string, min: number, max: number, what: string): string | null {
-  const length = codePointLength(value)
+/**
+ * null when fine, else the reason. Newlines are allowed (a paragraph), other control characters are not.
+ * `escaped` is for the fields the docs mark with ✱: each `_` counts as 2 (see escapedLength).
+ */
+export function paragraphProblem(value: string, min: number, max: number, what: string, escaped = false): string | null {
+  const length = escaped ? escapedLength(value) : codePointLength(value)
   const capital = `${what[0]!.toUpperCase()}${what.slice(1)}`
   if (length < min) return `Enter ${what}.`
-  if (length > max) return `${capital} can be at most ${max} characters.`
+  if (length > max) return `${capital} can be at most ${max} characters${escaped ? ' (each underscore counts as 2)' : ''}.`
   if (CONTROL_EXCEPT_NEWLINES.test(value)) return `${capital} contains characters that cannot be sent.`
   return null
 }
@@ -139,14 +143,14 @@ export function validateDecisionDraft(draft: DecisionDraft): FormResult<Decision
 
   if (draft.decision === 'no_further_action') {
     const explanation = draft.explanation.trim()
-    const problem = paragraphProblem(explanation, 1, DECISION_LIMITS.textMax, 'an explanation')
+    const problem = paragraphProblem(explanation, 1, DECISION_LIMITS.explanationMax, 'an explanation', true)
     if (problem) errors.explanation = problem
     if (Object.keys(errors).length > 0) return { ok: false, errors }
     return { ok: true, value: { decision: 'no_further_action', explanation } }
   }
 
   const description = draft.description.trim()
-  const descriptionProblem = paragraphProblem(description, 1, DECISION_LIMITS.textMax, 'a description of the penalty')
+  const descriptionProblem = paragraphProblem(description, 1, DECISION_LIMITS.descriptionMax, 'a description of the penalty', true)
   if (descriptionProblem) errors.description = descriptionProblem
 
   const pointsText = draft.points.trim()
@@ -202,7 +206,7 @@ export function validateManualPointsDraft(draft: ManualPointsDraft): FormResult<
   if (driverProblem) errors.driver = driverProblem
   const typeProblem = singleLineProblem(penaltyType, 1, MANUAL_LIMITS.typeMax, 'a penalty type')
   if (typeProblem) errors.penaltyType = typeProblem
-  const reasonProblem = singleLineProblem(reason, 1, MANUAL_LIMITS.reasonMax, 'a reason')
+  const reasonProblem = paragraphProblem(reason, 1, MANUAL_LIMITS.reasonMax, 'a reason', true)
   if (reasonProblem) errors.reason = reasonProblem
 
   const points = wholeNumber(draft.points, MANUAL_LIMITS.pointsMin, MANUAL_LIMITS.pointsMax)
@@ -241,7 +245,7 @@ export function validateClearDraft(draft: ClearDraft): FormResult<ClearValue, Cl
   const reason = draft.reason.trim()
   const driverProblem = singleLineProblem(driver, 1, MANUAL_LIMITS.driverMax, 'a driver name')
   if (driverProblem) errors.driver = driverProblem
-  const reasonProblem = singleLineProblem(reason, 1, CLEAR_LIMITS.reasonMax, 'a reason')
+  const reasonProblem = paragraphProblem(reason, 1, CLEAR_LIMITS.reasonMax, 'a reason')
   if (reasonProblem) errors.reason = reasonProblem
 
   let points: number | undefined

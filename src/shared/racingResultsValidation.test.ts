@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { parseRacingResultInput, parseRacingResultQuery } from './racingInputs'
+import { TEXT_LIMITS } from './textLimits'
 import { RACING_LIMITS, validateRacingResultDraft, validateRacingResultQuery } from './racingValidation'
 
 const good = { team: 'Fake Team Alpha', eventName: 'Fake Round 1', result: 'P3 in GT3', drivers: 'Fake Driver 001, Fake Driver 002', notes: '' }
@@ -14,15 +15,15 @@ describe('validateRacingResultDraft', () => {
     expect(validateRacingResultDraft({ ...good, notes: 'line one\nline two' })).toMatchObject({ ok: true, value: { notes: 'line one\nline two' } })
   })
 
-  it('applies the backend limits exactly: event 100, result 100, drivers 200, notes 300', () => {
+  it(`applies the backend limits exactly: event 100, result 100, drivers 200, notes ${TEXT_LIMITS.resultNotes}`, () => {
     expect(validateRacingResultDraft({ ...good, eventName: 'x'.repeat(RACING_LIMITS.resultEventMax) }).ok).toBe(true)
     expect(validateRacingResultDraft({ ...good, eventName: 'x'.repeat(101) })).toMatchObject({ ok: false, errors: { eventName: expect.stringContaining('100') } })
     expect(validateRacingResultDraft({ ...good, result: 'x'.repeat(100) }).ok).toBe(true)
     expect(validateRacingResultDraft({ ...good, result: 'x'.repeat(101) })).toMatchObject({ ok: false, errors: { result: expect.any(String) } })
     expect(validateRacingResultDraft({ ...good, drivers: 'x'.repeat(200) }).ok).toBe(true)
     expect(validateRacingResultDraft({ ...good, drivers: 'x'.repeat(201) })).toMatchObject({ ok: false, errors: { drivers: expect.stringContaining('200') } })
-    expect(validateRacingResultDraft({ ...good, notes: 'x'.repeat(300) }).ok).toBe(true)
-    expect(validateRacingResultDraft({ ...good, notes: 'x'.repeat(301) })).toMatchObject({ ok: false, errors: { notes: expect.stringContaining('300') } })
+    expect(validateRacingResultDraft({ ...good, notes: 'x'.repeat(TEXT_LIMITS.resultNotes) }).ok).toBe(true)
+    expect(validateRacingResultDraft({ ...good, notes: 'x'.repeat(TEXT_LIMITS.resultNotes + 1) })).toMatchObject({ ok: false, errors: { notes: expect.stringContaining(String(TEXT_LIMITS.resultNotes)) } })
   })
 
   it('counts characters like the backend (code points), so an emoji is one', () => {

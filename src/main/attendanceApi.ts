@@ -1,4 +1,5 @@
 import { isMessageId } from '../shared/attendanceValidation'
+import { TEXT_LIMITS, utf16Units } from '../shared/textLimits'
 import type {
   AttendanceCounts,
   AttendanceDivision,
@@ -61,6 +62,9 @@ const str = (value: unknown, max: number): string => (typeof value === 'string' 
 const optionalText = (value: unknown, max: number): string | null => (typeof value === 'string' && value !== '' ? value.slice(0, max) : null)
 const countOr = (value: unknown, fallback: number): number => (isCount(value) ? value : fallback)
 const TEXT_MAX = 2000
+/** Room for the longest description the API takes (docs/APP_API.md, "Text limits"), so a legal text is never cut when it is shown. */
+const POST_DESCRIPTION_MAX = utf16Units(TEXT_LIMITS.f1AttendanceDescription)
+const SIGNUP_DESCRIPTION_MAX = utf16Units(TEXT_LIMITS.signupDescription)
 
 function parseDriver(json: unknown): AttendanceDriver {
   if (!isRecord(json) || !isValidSnowflake(json['user_id'])) throw invalid('attendance')
@@ -88,7 +92,7 @@ function parseSummary(json: unknown): AttendancePostSummary {
     round: str(json['round'], 60),
     circuit: str(json['circuit'], 200),
     division: optionalText(json['division'], 100),
-    description: str(json['description'], TEXT_MAX),
+    description: str(json['description'], POST_DESCRIPTION_MAX),
     counts: { present: countOr(counts['present'], 0), absent: countOr(counts['absent'], 0), reserve: countOr(counts['reserve'], 0) }
   }
 }
@@ -128,7 +132,7 @@ function parseSignup(json: unknown): Signup {
   return {
     signupId: json['signup_id'],
     title: str(json['title'], 300),
-    description: str(json['description'], TEXT_MAX),
+    description: str(json['description'], SIGNUP_DESCRIPTION_MAX),
     status: json['status'],
     closeDate: optionalText(json['close_date'], 100),
     customQuestionCount: Array.isArray(json['fields']) ? json['fields'].length : 0,

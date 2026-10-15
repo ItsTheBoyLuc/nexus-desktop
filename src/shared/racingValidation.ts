@@ -1,9 +1,10 @@
 import { isRealDate } from './f1Validation'
 import type { RacingAttendanceInput, RacingEventInput, RacingGame, RacingResultInput, RacingResultQuery, RacingRole, RacingTeamEditInput, RacingTeamInput, RosterAddInput } from './types'
 import { GAME_KEYS, isGameKey, isRacingRole } from './types'
-import { codePointLength, isValidHexColor, isValidSnowflake, singleLineProblem } from './validation'
+import { codePointLength, escapedLength, isValidHexColor, isValidSnowflake, singleLineProblem } from './validation'
 import type { FormResult } from './validation'
 import { paragraphProblem } from './penaltyValidation'
+import { TEXT_LIMITS } from './textLimits'
 
 /**
  * Validation of the esports team forms (milestone 5). Every limit comes from docs/APP_API.md, so a mistake shows up next
@@ -18,13 +19,16 @@ export const RACING_LIMITS = {
   dateMax: 20,
   timeMax: 20,
   classMax: 30,
-  notesMax: 300,
+  eventNotesMax: TEXT_LIMITS.eventNotes,
+  resultNotesMax: TEXT_LIMITS.resultNotes,
+  /** `result` + `drivers` + `notes` together (underscores count twice), one Discord field. */
+  resultCombinedMax: TEXT_LIMITS.resultCombined,
   resultEventMax: 100,
   resultMax: 100,
   driversMax: 200,
   attendanceNameMax: 100,
   attendanceDateMax: 20,
-  attendanceDescriptionMax: 300,
+  attendanceDescriptionMax: TEXT_LIMITS.racingAttendanceDescription,
   pageMin: 1,
   pageMax: 100
 } as const
@@ -250,7 +254,7 @@ export function validateRacingEventDraft(draft: RacingEventDraft): FormResult<Ra
     if (problem) errors.class = problem
   }
   if (notes !== '') {
-    const problem = paragraphProblem(notes, 1, RACING_LIMITS.notesMax, 'the notes')
+    const problem = paragraphProblem(notes, 1, RACING_LIMITS.eventNotesMax, 'the notes', true)
     if (problem) errors.notes = problem
   }
   if (Object.keys(errors).length > 0 || !preview.ok) return { ok: false, errors }
@@ -283,9 +287,14 @@ export interface RacingResultDraft {
 }
 export type RacingResultField = keyof RacingResultDraft
 
+/** What the three texts of a result take of their shared Discord field (trimmed, underscores counted twice). */
+export function resultTextLength(draft: Pick<RacingResultDraft, 'result' | 'drivers' | 'notes'>): number {
+  return escapedLength(draft.result.trim()) + escapedLength(draft.drivers.trim()) + escapedLength(draft.notes.trim())
+}
+
 /**
  * Logging a result (/racing {game} results-log). The archive is append-only and the same result twice is two entries, so every
- * limit is checked here before anything is sent: event name 1-100, result 1-100, drivers 1-200 (free text), notes up to 300.
+ * limit is checked here before anything is sent: event name 1-100, result 1-100, drivers 1-200 (free text), notes up to 714, and the three together up to 1014.
  */
 export function validateRacingResultDraft(draft: RacingResultDraft): FormResult<RacingResultInput, RacingResultField> {
   const errors: Partial<Record<RacingResultField, string>> = {}
@@ -307,8 +316,12 @@ export function validateRacingResultDraft(draft: RacingResultDraft): FormResult<
   const driversProblem = singleLineProblem(drivers, 1, RACING_LIMITS.driversMax, 'the drivers involved')
   if (driversProblem) errors.drivers = driversProblem
   if (notes !== '') {
-    const problem = paragraphProblem(notes, 1, RACING_LIMITS.notesMax, 'the notes')
+    const problem = paragraphProblem(notes, 1, RACING_LIMITS.resultNotesMax, 'the notes', true)
     if (problem) errors.notes = problem
+  }
+  // The three texts share ONE Discord field: together they may take at most 1014 characters, underscores counted twice.
+  if (!errors.result && !errors.drivers && !errors.notes && resultTextLength(draft) > RACING_LIMITS.resultCombinedMax) {
+    errors.notes = `The result, the drivers and the notes together can be at most ${RACING_LIMITS.resultCombinedMax} characters (each underscore counts as 2). Shorten the notes.`
   }
   if (Object.keys(errors).length > 0) return { ok: false, errors }
   return { ok: true, value: { team, eventName, result, drivers, ...(notes !== '' ? { notes } : {}) } }
@@ -338,7 +351,7 @@ export interface RacingAttendanceDraft {
 }
 export type RacingAttendanceField = keyof RacingAttendanceDraft
 
-/** Creating an attendance post: name 1-100, date 1-20 (free text, shown as typed), description up to 300, and a channel. */
+/** Creating an attendance post: name 1-100, date 1-20 (free text, shown as typed), description up to 3645, and a channel. */
 export function validateRacingAttendanceDraft(draft: RacingAttendanceDraft): FormResult<RacingAttendanceInput, RacingAttendanceField> {
   const errors: Partial<Record<RacingAttendanceField, string>> = {}
   const name = draft.name.trim()

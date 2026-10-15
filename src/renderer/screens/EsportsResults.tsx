@@ -1,6 +1,7 @@
 import { Plus, RotateCw, Send, Trophy } from 'lucide-react'
 import { useCallback, useState } from 'react'
-import { RACING_LIMITS, validateRacingResultDraft } from '../../shared/racingValidation'
+import { RACING_LIMITS, resultTextLength, validateRacingResultDraft } from '../../shared/racingValidation'
+import { LIMIT_NOTES, UNDERSCORE_NOTE } from '../../shared/textLimits'
 import type { RacingResultField } from '../../shared/racingValidation'
 import type { CardOutcome, RacingResult } from '../../shared/types'
 import { Button, EmptyState, ErrorState, LoadingRegion, Modal, Notice, PageHeader, PostConfirmDialog, PostTargetSection, Select, Skeleton, SortHeader, Stagger, TextField, useToast } from '../components'
@@ -57,7 +58,7 @@ function ResultFacts({ team, eventName, result, drivers, notes }: { team: string
       {notes ? (
         <div className="facts__wide">
           <dt>Notes</dt>
-          <dd className="plain-text">{notes}</dd>
+          <dd className="text-clamp text-clamp--wide">{notes}</dd>
         </div>
       ) : null}
     </dl>
@@ -211,7 +212,7 @@ function LogResultDialog({ ctx, teams, defaultTeam, onClose, onLogged }: { ctx: 
           <TextField label="Event name" value={draft.eventName} maxLength={RACING_LIMITS.resultEventMax} placeholder="Daytona 24" error={show('eventName')} autoComplete="off" onChange={(event) => change('eventName', event.target.value)} />
           <TextField label="Result" value={draft.result} maxLength={RACING_LIMITS.resultMax} placeholder="P3 in GT3" hint="Free text, up to 100 characters." error={show('result')} autoComplete="off" onChange={(event) => change('result', event.target.value)} />
           <TextField label="Drivers involved" value={draft.drivers} maxLength={RACING_LIMITS.driversMax} placeholder="alice, bob" hint="Free text, as you would type it in the command (up to 200 characters)." error={show('drivers')} autoComplete="off" onChange={(event) => change('drivers', event.target.value)} />
-          <TextField multiline label="Notes" optional rows={3} value={draft.notes} maxLength={RACING_LIMITS.notesMax} error={show('notes')} onChange={(event) => change('notes', event.target.value)} />
+          <TextField multiline label="Notes" optional rows={3} value={draft.notes} maxLength={RACING_LIMITS.resultNotesMax} escaped limitNote={`${LIMIT_NOTES.discordField} Result, drivers and notes share one field: ${resultTextLength(draft)} / ${RACING_LIMITS.resultCombinedMax} together. ${UNDERSCORE_NOTE}`} error={show('notes')} onChange={(event) => change('notes', event.target.value)} />
           <PostTargetSection target={target} guildId={ctx.guild.id} gameLabel={ctx.gameLabel} what="the result card" disabled={write.busy} showProblem={submitted} />
           {problem ? <Notice tone="danger">{problem}</Notice> : null}
         </>
@@ -362,7 +363,7 @@ function ResultsScreen({ ctx }: { ctx: EsportsContext }) {
                     <td>{entry.loggedAt === '' ? <span className="muted">-</span> : formatWhen(entry.loggedAt)}</td>
                     <th scope="row" className="table__key">
                       <span className="plain-text">{entry.eventName}</span>
-                      {entry.notes ? <span className="table__note plain-text">{entry.notes}</span> : null}
+                      {entry.notes ? <span className="table__note text-clamp">{entry.notes}</span> : null}
                     </th>
                     <td className="plain-text">{entry.teamName}</td>
                     <td className="plain-text">{entry.result}</td>

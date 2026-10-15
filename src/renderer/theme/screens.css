@@ -250,6 +250,10 @@ th[aria-sort='ascending'] .sort-btn, th[aria-sort='descending'] .sort-btn { colo
 .facts dd { font-size: 15px; font-weight: 600; }
 .plain-text { white-space: pre-wrap; overflow-wrap: anywhere; font-weight: 400; }
 .cell-clamp { max-width: 220px; overflow-wrap: anywhere; }
+/* Long free text (up to 4096 characters) in lists and confirm dialogs: only the first lines are shown, the full text is still what is sent.
+   It wraps (never widens a table or a dialog) and keeps its line breaks; the width cap keeps one long word from stretching a table column. */
+.text-clamp { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; max-width: 420px; min-width: 0; }
+.text-clamp--wide { max-width: 100%; -webkit-line-clamp: 4; line-clamp: 4; }
 .chip-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .evidence { display: flex; flex-direction: column; gap: 8px; }
 .evidence__url { margin: 0; padding: 8px 10px; background: var(--color-elevated); border: 1px solid var(--color-border); border-radius: var(--radius-control); overflow-wrap: anywhere; word-break: break-all; font-size: 13px; }

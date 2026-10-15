@@ -1,6 +1,7 @@
 import { ArrowLeft, ExternalLink as ExternalIcon, Lock, Plus, RotateCw, UserPlus } from 'lucide-react'
 import { useState } from 'react'
 import { SIGNUP_LIMITS, validateSignupDraft } from '../../shared/attendanceValidation'
+import { LIMIT_NOTES } from '../../shared/textLimits'
 import type { SignupField } from '../../shared/attendanceValidation'
 import type { Signup, SignupCloseResult, SignupCreateResult } from '../../shared/types'
 import { Badge, Button, Card, CopyButton, EmptyState, ErrorState, LoadingRegion, Modal, Notice, PageHeader, SearchSelect, Select, Skeleton, SortHeader, Stagger, tabPanelProps, Tabs, TextField, useToast } from '../components'
@@ -106,7 +107,7 @@ function CreateSignupDialog({ guildId, onClose, onCreated }: { guildId: string; 
         </Notice>
       ) : null}
       <TextField label="Title" value={draft.title} maxLength={SIGNUP_LIMITS.titleMax} placeholder="Season 16 Sign-up" error={show('title')} autoComplete="off" onChange={(event) => change('title', event.target.value)} />
-      <TextField multiline label="Description" optional rows={4} value={draft.description} maxLength={SIGNUP_LIMITS.descriptionMax} error={show('description')} onChange={(event) => change('description', event.target.value)} />
+      <TextField multiline label="Description" optional rows={4} value={draft.description} maxLength={SIGNUP_LIMITS.descriptionMax} limitNote={LIMIT_NOTES.discordDescription} error={show('description')} onChange={(event) => change('description', event.target.value)} />
       <div className="field-pair">
         <SearchSelect
           label="Channel for the panel"

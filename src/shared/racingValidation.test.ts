@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { parseRacingEventInput, parseRacingGame, parseRacingPage, parseRacingTeamInput, parseRacingTeamName, parseRosterAddInput } from './racingInputs'
 import { isPastDate, isRacingGame, longDate, parseEventDate, previewEventDate, RACING_GAMES, validateRacingEventDraft, validateRacingPage, validateRacingTeamDraft, validateRosterAddDraft } from './racingValidation'
 import type { RacingEventDraft } from './racingValidation'
+import { TEXT_LIMITS } from './textLimits'
 import { GAME_KEYS, isRacingRole, RACING_ROLES } from './types'
 
 const U1 = '200000000000000001'
@@ -151,7 +152,7 @@ describe('adding an event', () => {
     }
   })
 
-  it('applies the limits: name 1-100, time HH:MM, a short zone, "time zone" at most 20 characters, class at most 30, notes at most 300', () => {
+  it(`applies the limits: name 1-100, time HH:MM, a short zone, "time zone" at most 20 characters, class at most 30, notes at most ${TEXT_LIMITS.eventNotes}`, () => {
     expect(errorKeys(validateRacingEventDraft({ ...draft, name: '' }))).toEqual(['name'])
     expect(errorKeys(validateRacingEventDraft({ ...draft, name: long(101) }))).toEqual(['name'])
     expect(validateRacingEventDraft({ ...draft, name: long(100) }).ok).toBe(true)
@@ -160,8 +161,8 @@ describe('adding an event', () => {
     expect(validateRacingEventDraft({ ...draft, zone: 'UTC+2' })).toMatchObject({ ok: true, value: { time: '20:00 UTC+2' } })
     expect(errorKeys(validateRacingEventDraft({ ...draft, class: long(31) }))).toEqual(['class'])
     expect(validateRacingEventDraft({ ...draft, class: long(30) }).ok).toBe(true)
-    expect(errorKeys(validateRacingEventDraft({ ...draft, notes: long(301) }))).toEqual(['notes'])
-    expect(validateRacingEventDraft({ ...draft, notes: long(300) }).ok).toBe(true)
+    expect(errorKeys(validateRacingEventDraft({ ...draft, notes: long(TEXT_LIMITS.eventNotes + 1) }))).toEqual(['notes'])
+    expect(validateRacingEventDraft({ ...draft, notes: long(TEXT_LIMITS.eventNotes) }).ok).toBe(true)
   })
 
   it('text is untrusted but valid input: markup is just text', () => {

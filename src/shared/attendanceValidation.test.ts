@@ -11,6 +11,7 @@ import {
 import type { DivisionDraft } from './attendanceValidation'
 
 const CH = '777000000000000002'
+import { TEXT_LIMITS } from './textLimits'
 const long = (length: number): string => 'x'.repeat(length)
 const errorKeys = (result: { ok: boolean; errors?: Record<string, string | undefined> }): string[] => (result.ok ? [] : Object.keys(result.errors ?? {}))
 
@@ -73,15 +74,15 @@ describe('attendance post filters and form', () => {
     expect(validatePostDraft({ ...draft, description: ' Sprint weekend ' })).toMatchObject({ ok: true, value: { description: 'Sprint weekend' } })
   })
 
-  it('applies the documented limits: season and round 1-10, circuit 1-100, description at most 200, a channel and a division are required', () => {
+  it(`applies the documented limits: season and round 1-10, circuit 1-100, description at most ${TEXT_LIMITS.f1AttendanceDescription}, a channel and a division are required`, () => {
     expect(errorKeys(validatePostDraft({ ...draft, channelId: '' }))).toEqual(['channelId'])
     expect(errorKeys(validatePostDraft({ ...draft, division: '' }))).toEqual(['division'])
     expect(errorKeys(validatePostDraft({ ...draft, season: '' }))).toEqual(['season'])
     expect(errorKeys(validatePostDraft({ ...draft, season: long(11) }))).toEqual(['season'])
     expect(errorKeys(validatePostDraft({ ...draft, round: long(11) }))).toEqual(['round'])
     expect(errorKeys(validatePostDraft({ ...draft, circuit: long(101) }))).toEqual(['circuit'])
-    expect(errorKeys(validatePostDraft({ ...draft, description: long(201) }))).toEqual(['description'])
-    expect(validatePostDraft({ ...draft, season: long(10), round: long(10), circuit: long(100), description: long(200) }).ok).toBe(true)
+    expect(errorKeys(validatePostDraft({ ...draft, description: long(TEXT_LIMITS.f1AttendanceDescription + 1) }))).toEqual(['description'])
+    expect(validatePostDraft({ ...draft, season: long(10), round: long(10), circuit: long(100), description: long(TEXT_LIMITS.f1AttendanceDescription) }).ok).toBe(true)
   })
 
   it('text is posted exactly as typed: formatting characters are valid input, nothing is stripped or escaped', () => {
@@ -156,12 +157,12 @@ describe('creating a sign-up', () => {
     })
   })
 
-  it('applies the documented limits: title 1-150 on one line, description at most 1000, close date at most 50', () => {
+  it(`applies the documented limits: title 1-150 on one line, description at most ${TEXT_LIMITS.signupDescription}, close date at most 50`, () => {
     expect(errorKeys(validateSignupDraft({ ...draft, title: '' }))).toEqual(['title'])
     expect(errorKeys(validateSignupDraft({ ...draft, title: long(151) }))).toEqual(['title'])
     expect(errorKeys(validateSignupDraft({ ...draft, title: 'a\nb' }))).toEqual(['title'])
-    expect(validateSignupDraft({ ...draft, title: long(150), description: long(1000), closeDate: long(50) }).ok).toBe(true)
-    expect(errorKeys(validateSignupDraft({ ...draft, description: long(1001) }))).toEqual(['description'])
+    expect(validateSignupDraft({ ...draft, title: long(150), description: long(TEXT_LIMITS.signupDescription), closeDate: long(50) }).ok).toBe(true)
+    expect(errorKeys(validateSignupDraft({ ...draft, description: long(TEXT_LIMITS.signupDescription + 1) }))).toEqual(['description'])
     expect(errorKeys(validateSignupDraft({ ...draft, closeDate: long(51) }))).toEqual(['closeDate'])
     expect(errorKeys(validateSignupDraft({ ...draft, channelId: '' }))).toEqual(['channelId'])
     expect(errorKeys(validateSignupDraft({ ...draft, confirmationChannelId: 'logs' }))).toEqual(['confirmationChannelId'])

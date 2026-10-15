@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { TEXT_LIMITS } from './textLimits'
 import { parseDivisionInput, parseMessageId, parseParticipantPage, parsePostFiltersInput, parsePostInput, parseQuestionsInput, parseSignupInput, parseSignupStatus } from './attendanceInputs'
 
 /** The main process re-checks everything the renderer sends over IPC, with the same rules as the forms. */
@@ -26,7 +27,7 @@ describe('attendance posts', () => {
   it('re-validates the post, and accepts a number for season and round like the modal', () => {
     expect(parsePostInput(post)).toEqual({ ok: true, value: post })
     expect(parsePostInput({ ...post, season: 16, round: 5 })).toEqual({ ok: true, value: post })
-    for (const bad of [{ channelId: 'x' }, { division: '' }, { circuit: '' }, { season: 'x'.repeat(11) }, { description: 'x'.repeat(201) }]) expect(parsePostInput({ ...post, ...bad }).ok, JSON.stringify(bad)).toBe(false)
+    for (const bad of [{ channelId: 'x' }, { division: '' }, { circuit: '' }, { season: 'x'.repeat(11) }, { description: 'x'.repeat(TEXT_LIMITS.f1AttendanceDescription + 1) }]) expect(parsePostInput({ ...post, ...bad }).ok, JSON.stringify(bad)).toBe(false)
   })
 
   it('filters and page size', () => {

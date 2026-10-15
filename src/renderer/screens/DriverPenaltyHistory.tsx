@@ -133,7 +133,7 @@ export function DriverPenaltyHistory({ guildId, driver, season, currentSeason, f
                       <tr key={item.index}>
                         <td className="table__num">{item.index}</td>
                         <td className="table__num">{item.points > 0 ? `+${item.points}` : item.points}</td>
-                        <td className="plain-text">{item.reason}</td>
+                        <td><span className="text-clamp" title={item.reason}>{item.reason}</span></td>
                         <td>{item.race}</td>
                         <td className="table__num">{item.expiresAfterRace === null ? <span className="muted">Never</span> : item.expiresAfterRace}</td>
                         <td>{formatWhen(item.timestamp)}</td>

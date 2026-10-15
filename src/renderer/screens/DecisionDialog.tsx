@@ -1,6 +1,7 @@
 import { Gavel } from 'lucide-react'
 import { useState } from 'react'
 import { DECISION_LIMITS, validateDecisionDraft } from '../../shared/penaltyValidation'
+import { LIMIT_NOTES, UNDERSCORE_NOTE } from '../../shared/textLimits'
 import type { DecisionDraft, DecisionField } from '../../shared/penaltyValidation'
 import type { DecisionInput, Report } from '../../shared/types'
 import { Button, Modal, Notice, TextField } from '../components'
@@ -144,10 +145,10 @@ export function DecisionDialog({ guildId, report, onClose, onFinished, onOpenPen
           </fieldset>
 
           {draft.decision === 'no_further_action' ? (
-            <TextField multiline label="Explanation" rows={5} value={draft.explanation} maxLength={DECISION_LIMITS.textMax} hint="Shown in the Discord report message. The app cannot show it again later." error={show('explanation')} onChange={(event) => change({ explanation: event.target.value })} />
+            <TextField multiline label="Explanation" rows={5} value={draft.explanation} maxLength={DECISION_LIMITS.explanationMax} escaped limitNote={`${LIMIT_NOTES.discordField} ${UNDERSCORE_NOTE}`} hint="Shown in the Discord report message. The app cannot show it again later." error={show('explanation')} onChange={(event) => change({ explanation: event.target.value })} />
           ) : (
             <>
-              <TextField multiline label="Description of the penalty" rows={3} value={draft.description} maxLength={DECISION_LIMITS.textMax} placeholder="5 second time penalty" error={show('description')} onChange={(event) => change({ description: event.target.value })} />
+              <TextField multiline label="Description of the penalty" rows={3} value={draft.description} maxLength={DECISION_LIMITS.descriptionMax} escaped limitNote={`${LIMIT_NOTES.discordField} ${UNDERSCORE_NOTE}`} placeholder="5 second time penalty" error={show('description')} onChange={(event) => change({ description: event.target.value })} />
               <div className="field-pair">
                 <TextField label="Penalty points" inputMode="numeric" value={draft.points} hint={`0 to ${DECISION_LIMITS.pointsMax}. 0 = no points.`} error={show('points')} autoComplete="off" onChange={(event) => change({ points: event.target.value })} />
                 <TextField label="Season" optional inputMode="numeric" value={draft.season} placeholder="From the report" hint="Empty: the season in the report's title, else the current season." error={show('season')} autoComplete="off" onChange={(event) => change({ season: event.target.value })} />

@@ -27,6 +27,16 @@ export function codePointLength(value: string): number {
   return count
 }
 
+/**
+ * Length for the fields the docs mark with ✱: the bot shows the text with Discord markdown escaped (every `_` becomes `\_`),
+ * so the ESCAPED text must fit and each underscore counts as 2.
+ */
+export function escapedLength(value: string): number {
+  let count = 0
+  for (const char of value) count += char === '_' ? 2 : 1
+  return count
+}
+
 export function isValidSnowflake(value: unknown): value is string {
   return typeof value === 'string' && SNOWFLAKE.test(value)
 }

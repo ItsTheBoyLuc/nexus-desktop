@@ -1,6 +1,7 @@
 import { isMessageId } from '../shared/attendanceValidation'
 import { isCardId, parsePingRoleIds, parsePostTarget } from '../shared/pingRoles'
 import { isRacingGame, RACING_LIMITS } from '../shared/racingValidation'
+import { TEXT_LIMITS, utf16Units } from '../shared/textLimits'
 import type {
   CardOutcome,
   CardPostResult,
@@ -148,7 +149,7 @@ function parseEvent(json: unknown): RacingEvent {
     date: str(json['date'], 60),
     time: str(json['time'], 60),
     class: str(json['class'], 60),
-    notes: str(json['notes'], 1000),
+    notes: str(json['notes'], utf16Units(TEXT_LIMITS.eventNotes)),
     dateIso: typeof iso === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso : null,
     createdBy: str(json['created_by'], 40),
     createdAt: str(json['created_at'], 40)
@@ -163,7 +164,7 @@ function parseResult(json: unknown): RacingResult {
     teamName: str(json['team_name'], 100),
     result: str(json['result'], 200),
     drivers: str(json['drivers'], 400),
-    notes: str(json['notes'], 1000),
+    notes: str(json['notes'], utf16Units(TEXT_LIMITS.resultNotes)),
     loggedBy: str(json['logged_by'], 40),
     loggedAt: str(json['logged_at'], 40)
   }
@@ -186,7 +187,7 @@ function parseAttendanceSummary(json: unknown): RacingAttendanceSummary {
     messageId: json['message_id'],
     name: json['name'].slice(0, 200),
     date: str(json['date'], 60),
-    description: str(json['description'], 1000),
+    description: str(json['description'], utf16Units(TEXT_LIMITS.racingAttendanceDescription)),
     createdBy: str(json['created_by'], 40),
     createdAt: str(json['created_at'], 40),
     counts: { available: countOr(counts['available'], 0), unavailable: countOr(counts['unavailable'], 0) }

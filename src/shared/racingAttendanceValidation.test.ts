@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { parseRacingAttendanceInput } from './racingInputs'
+import { TEXT_LIMITS } from './textLimits'
 import { RACING_LIMITS, validateRacingAttendanceDraft } from './racingValidation'
 
 const CH = '777000000000000001'
@@ -14,13 +15,13 @@ describe('validateRacingAttendanceDraft', () => {
     expect(validateRacingAttendanceDraft({ ...good, description: 'line one\nline two' })).toMatchObject({ ok: true, value: { description: 'line one\nline two' } })
   })
 
-  it('applies the backend limits exactly: name 100, date 20, description 300', () => {
+  it(`applies the backend limits exactly: name 100, date 20, description ${TEXT_LIMITS.racingAttendanceDescription}`, () => {
     expect(validateRacingAttendanceDraft({ ...good, name: 'x'.repeat(RACING_LIMITS.attendanceNameMax) }).ok).toBe(true)
     expect(validateRacingAttendanceDraft({ ...good, name: 'x'.repeat(101) })).toMatchObject({ ok: false, errors: { name: expect.stringContaining('100') } })
     expect(validateRacingAttendanceDraft({ ...good, date: 'x'.repeat(20) }).ok).toBe(true)
     expect(validateRacingAttendanceDraft({ ...good, date: 'x'.repeat(21) })).toMatchObject({ ok: false, errors: { date: expect.stringContaining('20') } })
-    expect(validateRacingAttendanceDraft({ ...good, description: 'x'.repeat(300) }).ok).toBe(true)
-    expect(validateRacingAttendanceDraft({ ...good, description: 'x'.repeat(301) })).toMatchObject({ ok: false, errors: { description: expect.stringContaining('300') } })
+    expect(validateRacingAttendanceDraft({ ...good, description: 'x'.repeat(TEXT_LIMITS.racingAttendanceDescription) }).ok).toBe(true)
+    expect(validateRacingAttendanceDraft({ ...good, description: 'x'.repeat(TEXT_LIMITS.racingAttendanceDescription + 1) })).toMatchObject({ ok: false, errors: { description: expect.stringContaining(String(TEXT_LIMITS.racingAttendanceDescription)) } })
   })
 
   it('requires a channel, a name and a date, and reports each missing field', () => {

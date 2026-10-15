@@ -1,5 +1,6 @@
 import { CalendarDays, Plus, RotateCw, Send } from 'lucide-react'
 import { useCallback, useState } from 'react'
+import { LIMIT_NOTES, UNDERSCORE_NOTE } from '../../shared/textLimits'
 import { previewEventDate, RACING_LIMITS, isPastDate, validateRacingEventDraft } from '../../shared/racingValidation'
 import type { RacingEventField } from '../../shared/racingValidation'
 import type { CardOutcome, RacingEvent } from '../../shared/types'
@@ -46,7 +47,7 @@ function EventCardSummary({ event }: { event: Pick<RacingEvent, 'name' | 'date' 
       {event.notes ? (
         <div className="facts__wide">
           <dt>Notes</dt>
-          <dd className="plain-text">{event.notes}</dd>
+          <dd className="text-clamp text-clamp--wide">{event.notes}</dd>
         </div>
       ) : null}
     </dl>
@@ -189,7 +190,7 @@ function AddEventDialog({ ctx, onClose, onAdded }: { ctx: EsportsContext; onClos
       <div className="field-pair">
         <TextField label="Class or category" optional value={draft.class} maxLength={RACING_LIMITS.classMax} placeholder="GT3, Hypercar ..." hint="Free text, up to 30 characters." error={show('class')} autoComplete="off" onChange={(event) => change('class', event.target.value)} />
       </div>
-      <TextField multiline label="Notes" optional rows={3} value={draft.notes} maxLength={RACING_LIMITS.notesMax} error={show('notes')} onChange={(event) => change('notes', event.target.value)} />
+      <TextField multiline label="Notes" optional rows={3} value={draft.notes} maxLength={RACING_LIMITS.eventNotesMax} escaped limitNote={`${LIMIT_NOTES.discordField} ${UNDERSCORE_NOTE}`} error={show('notes')} onChange={(event) => change('notes', event.target.value)} />
       <PostTargetSection target={target} guildId={ctx.guild.id} gameLabel={ctx.gameLabel} what="the event card" disabled={lost || write.busy} showProblem={submitted} />
       {problem ? <Notice tone="danger">{problem}</Notice> : null}
     </Modal>
@@ -315,7 +316,7 @@ function EventsScreen({ ctx }: { ctx: EsportsContext }) {
                       <td>{event.time}</td>
                       <th scope="row" className="table__key">
                         {event.name}
-                        {event.notes ? <span className="table__note plain-text">{event.notes}</span> : null}
+                        {event.notes ? <span className="table__note text-clamp">{event.notes}</span> : null}
                       </th>
                       <td>{event.class === '' ? <span className="muted">-</span> : event.class}</td>
                       <td>
