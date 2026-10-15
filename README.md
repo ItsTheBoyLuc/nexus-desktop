@@ -221,6 +221,36 @@ dialog) in two places:
   *postfail* / *postslow* (post_error `discord_error` / `bot_timeout`), *fail* in an item name (502 when posted with "Post to
   Discord"), and `lostracing` or the `#timeout` channel for the lost answer. Role pings share one 5-per-minute limiter.
 
+### Edit a team, and the posts made with the app (milestone 7)
+
+- **Edit team** (Esports, Teams, all five games): an action per team in the list and on the team page. The dialog has the team name and
+  the **class or category** (`focus`, the only category field a team has; empty clears it) and says plainly *Renames the Discord role and
+  updates this team's results. Messages already posted in Discord are not changed.* Only the fields that really changed are sent
+  (`PATCH /racing/{game}/teams`); a request that changes nothing is never sent. It needs Manage Server: off with the usual explanation,
+  and a 403 switches it off for the server. Refusals are explained: `no_changes`, `team_exists` (the name field), `team_not_found`,
+  `bot_missing_manage_roles`, `role_not_assignable`. A **lost answer** locks the form and offers only a refresh: the edit is never
+  sent again. After a save the teams, the results, the team roles and the server's roles are read again.
+- **A rename and the state keyed by team name.** The settings file holds nothing that is keyed by an esports team name (panels are
+  league games and tiers, the calendar message is per server, the ledger is league races, `postChannels` is `server:game`), and a
+  test pins that list. In memory only the open team (the Teams screen selects it by name) and the reads keyed by name exist: the open
+  team moves to the new name in the same step as the refresh, and the old list is never read as "the team was removed". The results
+  screen's team filter lives only while that screen is open; if it still held an old name the server answers `team_not_found` and the
+  screen offers All teams.
+- **Delete posts made with the app** (Announcement of the server and of each game): *Recent posts made with the app*. Pick a channel
+  (nothing is read from Discord until you do), see the title, the time and *Open in Discord* of each post, newest first, with the note
+  *Shows posts among the last 100 messages* (the server looks at 100 messages and returns at most 25 app posts; team, event and result
+  cards are in the list too). **Delete** opens a confirmation that names the title and the channel, says it cannot be undone and that it
+  **never deletes the team, event or result itself**, and has Cancel as default focus. It needs Manage Server (off with an explanation,
+  and a 403 switches it off). The success panel of a new announcement has **Delete this announcement**.
+- **Deletes are never replayed.** After a timeout, a dropped connection or a 5xx the dialog locks and offers only **Refresh list**.
+  `message_not_found` says the post is already gone and refreshes; `not_an_app_post`, `bot_cannot_read`, `bot_cannot_delete`,
+  `channel_not_found` and rate limits (10 deletes a minute, refused attempts count) have their own words. Nothing about posts is
+  stored on this computer: the list lives in memory and the privacy test covers the new files.
+- **Mock.** `roleabove`, `editnochanges`, `editgone` (and the earlier `nomanage`, `nomanageroles`, `lostracing`, a name containing
+  *timeout* or *fail*) for the team edit; `noappposts`, `postgone`, `notappost`, `cannotread`, `cannotdelete`, `channelgone`,
+  `deletelimit`, `lostdelete` (and `nomanage`, `nostaff`) for the posts. Everything posted in the mock can be listed and deleted
+  again. The scenarios and hooks are documented at the top of `mock/racingMock.ts` and `mock/appPostsMock.ts`.
+
 ## Motion
 
 A small motion layer, pure CSS plus a tiny React helper, no animation library. All of it is in `src/renderer/theme/motion.css`, with the durations (150 / 220 / 320 ms, 40 ms stagger) and the easing as tokens in `theme/tokens.ts`. Only transform, opacity and stroke-dashoffset move (hover colour and shadow transitions aside; the one exception is the open and close of the sidebar groups).
@@ -271,6 +301,9 @@ src/shared    Types, IPC channel names, CSP and the validation shared by both si
 - a **ledger of recorded races** (`ledger`: server, season, round, circuit, time), now only the fallback of the
   server's own results ledger,
 - the **last channel id chosen for the esports posts**, per server and game (`postChannels`): a channel id and nothing else.
+
+Nothing in this file is keyed by an esports team's name (a team can be renamed), and nothing about the posts made with the app
+(titles, ids, lists) is stored: it is read from Discord and kept in memory only.
 
 Only the main process writes them, and only after the API confirmed the outcome (`src/main/panelService.ts`,
 `src/main/f1Service.ts`); the renderer cannot add or wipe them, and a timeout, a lost answer or a refusal
