@@ -67,7 +67,11 @@ describe('participant data is never written to disk or browser storage', () => {
       'main/appPostsApi.ts',
       'renderer/screens/AppPostsSection.tsx',
       'renderer/screens/DeleteAppPostDialog.tsx',
-      'renderer/lib/appPosts.ts'
+      'renderer/lib/appPosts.ts',
+      // app updates: the renderer shows a state and logs nothing
+      'renderer/components/UpdatePanel.tsx',
+      'renderer/hooks/updates.tsx',
+      'renderer/lib/updateView.ts'
     ]
     for (const name of handlers) {
       const text = read(join(SRC, name))

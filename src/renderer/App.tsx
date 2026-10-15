@@ -3,6 +3,7 @@ import { ErrorState, LoadingRegion, Skeleton, ToastProvider } from './components
 import { AuthProvider } from './hooks/auth'
 import { useGuilds } from './hooks/data'
 import { SettingsProvider, useSettings } from './hooks/settings'
+import { UpdatesProvider } from './hooks/updates'
 import { RequireAuth } from './layout/AppShell'
 import { describeError } from './lib/errors'
 import { gameHomePage, LEAGUE_PAGES, routes } from './lib/routes'
@@ -63,6 +64,7 @@ export function App() {
   return (
     <AuthProvider>
       <SettingsProvider>
+        <UpdatesProvider>
         <ToastProvider>
           <HashRouter>
             <Routes>
@@ -108,6 +110,7 @@ export function App() {
             </Routes>
           </HashRouter>
         </ToastProvider>
+        </UpdatesProvider>
       </SettingsProvider>
     </AuthProvider>
   )
