@@ -43,7 +43,7 @@ export function createUpdatesMock(scenario: string): UpdatesMockApi {
       await sleep(900)
       if (scenario === 'updateerror') return set({ status: 'error', currentVersion: CURRENT, during: 'check', message: describeUpdateError('check') })
       if (scenario === 'updatecurrent') return set({ status: 'up-to-date', currentVersion: CURRENT, checkedAt: new Date().toISOString() })
-      return set({ status: 'available', currentVersion: CURRENT, version: NEXT, notes: 'What is new\n- Edit a team\n- Delete posts made with the app\nplain text only & more' })
+      return set({ status: 'available', currentVersion: CURRENT, version: NEXT, notes: 'What is new\n- Edit a team\n- Delete posts made with the app\n<b>plain text only</b> <script>alert(1)</script> & more' })
     },
 
     download: async () => {
