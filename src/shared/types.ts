@@ -1074,6 +1074,24 @@ export interface RacingTeamInput {
   pingRoleIds?: string[]
 }
 
+/**
+ * Edit a team (M7): `PATCH /racing/{game}/teams`. The team is named by its CURRENT name. Only the fields that really change are sent:
+ * `newName` renames the team (and its Discord role, and the team name of its results), `focus` is the class or category, the only
+ * category field a team has (`null` or `''` clears it; `undefined` leaves it alone). There is no separate "class" field.
+ */
+export interface RacingTeamEditInput {
+  team: string
+  newName?: string
+  focus?: string | null
+}
+
+/** The answer of an edit: the team as GET returns it, and whether its Discord role carries the new name now. */
+export interface RacingTeamEditResult {
+  team: RacingTeamDetail
+  /** False when only the class changed, or when the team's role no longer exists. */
+  roleUpdated: boolean
+}
+
 export interface RosterAddInput {
   team: string
   userId: string

@@ -20,6 +20,7 @@
  *   noreports | nopenaltyconfig | nostaff | lostdecisions | nodirty   reports and penalties, see mock/stewardMock.ts
  *   nodivisions | nosignups | noconfirmperms | nomanagechannels | ambiguousconfirm | lostcreates   attendance and sign-ups, see mock/attendanceMock.ts
  *   noracingteams | nomanage | nomanageroles | lostracing | noresults | noattendance | nomanager | nomanager-<game>   esports teams of the five games, see mock/racingMock.ts
+ *   roleabove | editnochanges | editgone   editing a team (M7), see mock/racingMock.ts
  *   manyteamroles | norolelist | invalidping | toomanyping | pingrefused | pinglimit | posterror   role pings and cards of the esports features, see mock/pingMock.ts and mock/racingMock.ts
  *   notadmin                       staff only, not Administrator: saving settings returns 403
  *                                  admin_required and linking an admin-level role returns

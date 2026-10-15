@@ -8,9 +8,12 @@
  *
  * Scenarios (query string, on top of the ones in the other mock files):
  *   noracingteams   no esports team anywhere (the empty state)
- *   nomanage        staff without Manage Server: creating a team, adding or removing a roster member and adding an event answer 403 manage_server_required
- *   nomanageroles   the bot lacks Manage Roles: creating a team and adding a roster member answer 403 bot_missing_manage_roles (nothing is created)
- *   lostracing      creating a team, adding an event, logging a result, creating an attendance post and posting an announcement ARE applied, then the answer is lost (timeout)
+ *   nomanage        staff without Manage Server: creating or EDITING a team, adding or removing a roster member and adding an event answer 403 manage_server_required
+ *   nomanageroles   the bot lacks Manage Roles: creating a team, adding a roster member and RENAMING a team (a class-only edit does not touch Discord) answer 403 bot_missing_manage_roles (nothing is changed)
+ *   roleabove       M7: renaming a team answers 403 role_not_assignable (the team role is above the bot's highest role; nothing is changed)
+ *   editnochanges   M7: every team edit answers 400 no_changes (the values already are the stored ones)
+ *   editgone        M7: every team edit answers 404 team_not_found (the team was renamed or removed in Discord meanwhile)
+ *   lostracing      creating or editing a team, adding an event, logging a result, creating an attendance post and posting an announcement ARE applied, then the answer is lost (timeout)
  *   noresults       every results archive is empty (the empty state)
  *   noattendance    no attendance post anywhere (the empty list)
  *   nomanager       creating an attendance post and posting an announcement answer 403 manager_required for every game
@@ -26,6 +29,9 @@
  *   a team, event or result containing "fail" posted with "Post to Discord"   502 discord_error, nothing is posted
  *   an attendance post name or announcement title containing "fail"   502 discord_error, nothing is posted (a server error: the app says the post may be there)
  *   a team name equal to an existing one, in any case   409 team_exists
+ *   M7 edit: a NEW name containing "timeout"   the edit IS applied, then the answer is lost; containing "fail"   502 discord_error (the app treats it as an unknown outcome: it locks and offers only a refresh);
+ *            a new name equal to ANOTHER team (any case)   409 team_exists; the capitals of the team's own name may change; nothing to change   400 no_changes.
+ *            A rename also renames the role (role_updated true) and the team name of every result of the team, and keeps the order of the teams. Posted cards in Discord are not touched.
  *   an unknown {game}   404 unknown_game (the real app never sends one: the bridge refuses it first)
  *
  * Sample data: "Apex Racing League" has teams in all five games: lmu (3 teams, one without members), iracing (a team with 55 members and a
@@ -54,6 +60,7 @@ import type {
   RacingResultPage,
   RacingTeam,
   RacingTeamDetail,
+  RacingTeamEditResult,
   RacingTeamRole,
   Role,
   WithCard,
@@ -67,7 +74,7 @@ import type { F1MockContext } from './f1Mock'
 import { MEMBERS } from './f1Mock'
 import { checkPings, createPingLimiter } from './pingMock'
 
-type RacingMockApi = Pick<NexusBridge['api'], 'racingTeams' | 'racingTeam' | 'createRacingTeam' | 'addRosterMember' | 'removeRosterMember' | 'racingDriver' | 'racingEvents' | 'addRacingEvent' | 'racingResults' | 'logRacingResult' | 'racingAttendance' | 'racingAttendancePost' | 'createRacingAttendance' | 'postRacingAnnouncement' | 'racingTeamRoles' | 'postRacingTeam' | 'postRacingEvent' | 'postRacingResult'>
+type RacingMockApi = Pick<NexusBridge['api'], 'racingTeams' | 'racingTeam' | 'createRacingTeam' | 'editRacingTeam' | 'addRosterMember' | 'removeRosterMember' | 'racingDriver' | 'racingEvents' | 'addRacingEvent' | 'racingResults' | 'logRacingResult' | 'racingAttendance' | 'racingAttendancePost' | 'createRacingAttendance' | 'postRacingAnnouncement' | 'racingTeamRoles' | 'postRacingTeam' | 'postRacingEvent' | 'postRacingResult'>
 
 const DAY_MS = 86_400_000
 const pad = (n: number, size = 3): string => String(n).padStart(size, '0')
@@ -369,6 +376,39 @@ export function createRacingMock(ctx: F1MockContext): { api: RacingMockApi; role
           const answer = withCard(detailView(created), input.name, card.post)
           if (lostCard(input.name, card.post)) return timeoutFailure() // created (with its role, and its card), but the answer "got lost"
           return { ok: true, data: answer }
+        })
+      ),
+
+    editRacingTeam: (guildId, game, input) =>
+      ctx.api<RacingTeamEditResult>(() =>
+        manage(guildId, game, (state) => {
+          if (scenario === 'editgone') return notFound('team_not_found', `Team '${input.team}' was not found.`)
+          if (scenario === 'editnochanges') return failure('http', 'no_changes', 'Nothing to change.', 400)
+          const target = findTeam(state, input.team)
+          if (!target) return notFound('team_not_found', `Team '${input.team}' was not found.`)
+          // The same as the server: only values that differ from the stored ones count (the capitals of the name do).
+          const renamed = input.newName !== undefined && input.newName.trim() !== target.name
+          const focus = input.focus === undefined ? undefined : (input.focus ?? '').trim()
+          const refocused = focus !== undefined && focus !== target.focus
+          if (!renamed && !refocused) return failure('http', 'no_changes', 'Nothing to change.', 400)
+          const newName = renamed ? (input.newName ?? '').trim() : target.name
+          if (renamed && state.teams.some((other) => other !== target && other.name.toLowerCase() === newName.toLowerCase())) {
+            return failure('http', 'team_exists', `A team named '${newName}' already exists (any capitalisation).`, 409)
+          }
+          // The Discord role is only touched by a rename of a team that still has its role.
+          const renamesRole = renamed && target.roleExists
+          if (renamesRole && scenario === 'nomanageroles') return refused('bot_missing_manage_roles', 'The bot needs the Manage Roles permission.')
+          if (renamesRole && scenario === 'roleabove') return refused('role_not_assignable', "The team's role is above the bot's highest role.")
+          if (renamed && /\bfail\b/i.test(newName)) return failure('http', 'discord_error', 'Discord rejected the change.', 502) // nothing changed, but the app cannot know
+          const from = target.name
+          // Applied in place (the order of the teams is kept), then every result of the team gets the new name, like the server does.
+          if (renamed) {
+            target.name = newName
+            for (const entry of state.results) if (entry.teamName.toLowerCase() === from.toLowerCase()) entry.teamName = newName
+          }
+          if (refocused) target.focus = focus
+          if (lost(newName)) return timeoutFailure() // applied, but the answer "got lost"
+          return { ok: true, data: { team: detailView(target), roleUpdated: renamesRole } }
         })
       ),
 

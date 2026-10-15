@@ -254,8 +254,8 @@ describe('the game is checked first for the card calls too', () => {
     expect(request).not.toHaveBeenCalled()
   })
 
-  it('the three post calls change nothing: the API object has no call that edits or deletes a team, event or result', () => {
+  it('the three post calls change nothing: the only call that edits is the team edit of M7; no call deletes anything, and events and results cannot be edited', () => {
     const { api } = setup()
-    expect(Object.keys(api).filter((name) => /edit|update|delete/i.test(name))).toEqual([])
+    expect(Object.keys(api).filter((name) => /edit|update|delete/i.test(name))).toEqual(['editRacingTeam'])
   })
 })

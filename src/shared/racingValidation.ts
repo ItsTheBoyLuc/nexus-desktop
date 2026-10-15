@@ -1,5 +1,5 @@
 import { isRealDate } from './f1Validation'
-import type { RacingAttendanceInput, RacingEventInput, RacingGame, RacingResultInput, RacingResultQuery, RacingRole, RacingTeamInput, RosterAddInput } from './types'
+import type { RacingAttendanceInput, RacingEventInput, RacingGame, RacingResultInput, RacingResultQuery, RacingRole, RacingTeamEditInput, RacingTeamInput, RosterAddInput } from './types'
 import { GAME_KEYS, isGameKey, isRacingRole } from './types'
 import { codePointLength, isValidHexColor, isValidSnowflake, singleLineProblem } from './validation'
 import type { FormResult } from './validation'
@@ -62,6 +62,50 @@ export function validateRacingTeamDraft(draft: RacingTeamDraft): FormResult<Raci
   }
   if (Object.keys(errors).length > 0) return { ok: false, errors }
   return { ok: true, value: { name, color: color.toUpperCase(), ...(focus !== '' ? { focus } : {}) } }
+}
+
+// ── Edit a team (M7) ────────────────────────────────────────────────────────
+
+export interface RacingTeamEditDraft {
+  name: string
+  /** Free text; empty clears the class or category. */
+  focus: string
+}
+export type RacingTeamEditField = keyof RacingTeamEditDraft
+
+/** What the team is now, as the list or the detail shows it: the edit is compared against this, so only real changes are sent. */
+export interface RacingTeamEditBase {
+  name: string
+  focus: string
+}
+
+/** The fields of an edit that really differ from the team as it is now (a different capitalisation of the name IS a change, like the server). */
+export type RacingTeamEditChanges = Pick<RacingTeamEditInput, 'newName' | 'focus'>
+
+export function hasTeamEditChanges(changes: RacingTeamEditChanges): boolean {
+  return changes.newName !== undefined || changes.focus !== undefined
+}
+
+/**
+ * Checks the edit form and keeps only what changed: `newName` when the trimmed name differs from the current one, `focus` when the trimmed
+ * class differs (empty text becomes `null`, which clears it). Nothing changed gives an empty value, which the dialog answers with
+ * "nothing to save" and never sends (the server would answer 400 no_changes).
+ */
+export function validateRacingTeamEditDraft(base: RacingTeamEditBase, draft: RacingTeamEditDraft): FormResult<RacingTeamEditChanges, RacingTeamEditField> {
+  const errors: Partial<Record<RacingTeamEditField, string>> = {}
+  const name = draft.name.trim()
+  const focus = draft.focus.trim()
+  const nameProblem = singleLineProblem(name, 1, RACING_LIMITS.teamNameMax, 'a team name')
+  if (nameProblem) errors.name = nameProblem
+  if (focus !== '') {
+    const problem = singleLineProblem(focus, 1, RACING_LIMITS.focusMax, 'a class or category')
+    if (problem) errors.focus = problem
+  }
+  if (Object.keys(errors).length > 0) return { ok: false, errors }
+  const changes: RacingTeamEditChanges = {}
+  if (name !== base.name) changes.newName = name
+  if (focus !== base.focus.trim()) changes.focus = focus === '' ? null : focus
+  return { ok: true, value: changes }
 }
 
 /** A team name in a query parameter: 1 to 50 characters, one line. */

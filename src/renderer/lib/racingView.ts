@@ -11,7 +11,7 @@ import { describeError, errorCode } from './errors'
 // ── Words for the answers ───────────────────────────────────────────────────
 
 export const MANAGE_SERVER_RULE =
-  'Creating teams, changing rosters, adding events and logging results need the Manage Server permission, or Administrator, in Discord. Your account is staff of this server, so you can read everything here, but not do this.'
+  'Creating and editing teams, changing rosters, adding events, logging results and deleting posts made with the app need the Manage Server permission, or Administrator, in Discord. Your account is staff of this server, so you can read everything here, but not do this.'
 
 export const MANAGER_RULE = 'Creating an attendance post or an announcement needs Manage Server, Administrator, or being a Manager or Coach of one of THIS game\'s teams.'
 
@@ -33,7 +33,7 @@ export function describeRacingError(error: unknown, gameLabel: string, effect = 
     case 'team_not_found':
       return 'That team no longer exists. Refresh the list to see the current teams.'
     case 'team_role_not_found':
-      return "The team's Discord role no longer exists, and a team cannot be repaired from the app (it has no edit). Nothing was changed."
+      return "The team's Discord role no longer exists, and a team cannot be repaired from the app (an edit only renames a role that exists). Nothing was changed."
     case 'member_not_found':
       return 'Discord could not find that member in the server. Search again and pick them from the list. Nothing was changed.'
     case 'already_on_roster':

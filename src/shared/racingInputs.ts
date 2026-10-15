@@ -1,8 +1,8 @@
 import type { Parsed } from './inputs'
 import { isCardId, parsePingRoleIds, parsePostTarget } from './pingRoles'
-import { isRacingGame, teamNameProblem, validateRacingAttendanceDraft, validateRacingEventDraft, validateRacingPage, validateRacingResultDraft, validateRacingResultQuery, validateRacingTeamDraft, validateRosterAddDraft } from './racingValidation'
-import type { RacingAnnouncementInput, RacingAttendanceInput, RacingEventInput, RacingEventPostInput, RacingGame, RacingResultInput, RacingResultPostInput, RacingResultQuery, RacingTeamInput, RacingTeamPostInput, RosterAddInput } from './types'
-import { isValidSnowflake, validateAnnouncement } from './validation'
+import { hasTeamEditChanges, isRacingGame, RACING_LIMITS, teamNameProblem, validateRacingAttendanceDraft, validateRacingEventDraft, validateRacingPage, validateRacingResultDraft, validateRacingResultQuery, validateRacingTeamDraft, validateRosterAddDraft } from './racingValidation'
+import type { RacingAnnouncementInput, RacingAttendanceInput, RacingEventInput, RacingEventPostInput, RacingGame, RacingResultInput, RacingResultPostInput, RacingResultQuery, RacingTeamEditInput, RacingTeamInput, RacingTeamPostInput, RosterAddInput } from './types'
+import { isValidSnowflake, singleLineProblem, validateAnnouncement } from './validation'
 
 /**
  * The main process never trusts what the renderer sends over IPC: every M5 argument is parsed again here, with the same
@@ -30,6 +30,35 @@ export function parseRacingTeamInput(input: unknown): Parsed<RacingTeamInput> {
   const record = isRecord(input) ? input : {}
   const result = validateRacingTeamDraft({ name: text(record['name']), color: text(record['color']), focus: text(record['focus']) })
   return result.ok ? withCard(result.value, record) : { ok: false, message: firstError(result.errors) }
+}
+
+/**
+ * Edit a team (M7): the current name, plus `newName` and / or `focus`. The same rules as the form; a request that changes nothing is refused
+ * here (the server would answer no_changes). A `focus` of null or empty text clears the class; a key that is absent is left alone.
+ */
+export function parseRacingTeamEditInput(input: unknown): Parsed<RacingTeamEditInput> {
+  const record = isRecord(input) ? input : {}
+  const team = parseRacingTeamName(record['team'])
+  if (!team.ok) return team
+  const hasName = record['newName'] !== undefined
+  const hasFocus = record['focus'] !== undefined
+  if (hasName && typeof record['newName'] !== 'string') return { ok: false, message: 'Enter a team name.' }
+  if (hasFocus && record['focus'] !== null && typeof record['focus'] !== 'string') return { ok: false, message: 'Enter a class or category as text.' }
+  const newName = hasName ? text(record['newName']).trim() : undefined
+  const focus = hasFocus ? text(record['focus']).trim() : undefined
+  if (newName !== undefined) {
+    const problem = teamNameProblem(newName)
+    if (problem) return { ok: false, message: problem }
+  }
+  if (focus !== undefined && focus !== '') {
+    const problem = singleLineProblem(focus, 1, RACING_LIMITS.focusMax, 'a class or category')
+    if (problem) return { ok: false, message: problem }
+  }
+  const value: RacingTeamEditInput = { team: team.value }
+  if (newName !== undefined) value.newName = newName
+  if (focus !== undefined) value.focus = focus === '' ? null : focus
+  if (!hasTeamEditChanges(value)) return { ok: false, message: 'Change the name or the class first: there is nothing to save.' }
+  return { ok: true, value }
 }
 
 /** Post the card of an existing team: the team (by name), a channel and up to 3 roles. */

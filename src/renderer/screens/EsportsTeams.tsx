@@ -1,6 +1,6 @@
-import { ArrowLeft, Plus, RotateCw, Send, Trash2, User, UserPlus, Users } from 'lucide-react'
+import { ArrowLeft, Pencil, Plus, RotateCw, Send, Trash2, User, UserPlus, Users } from 'lucide-react'
 import { useState } from 'react'
-import type { RacingTeam, RacingTeamDetail, RosterEntry } from '../../shared/types'
+import type { RacingTeam, RacingTeamDetail, RacingTeamEditResult, RosterEntry } from '../../shared/types'
 import { Badge, Button, Card, EmptyState, ErrorState, LoadingRegion, Notice, PageHeader, Select, Skeleton, SortHeader, Stagger, TextField } from '../components'
 import { useRacingTeam, useRacingTeams } from '../hooks/data'
 import { useManageDenied } from '../hooks/useFiaDenied'
@@ -22,15 +22,19 @@ import {
 } from '../lib/racingView'
 import type { RosterColumn, RosterFilter, TeamColumn, TeamFilter } from '../lib/racingView'
 import { matchesQuery, nextSort, sortRows } from '../lib/tableView'
+import { selectedTeamView, selectionAfterRename } from '../lib/teamEdit'
 import type { SortState } from '../lib/tableView'
 import { EsportsNote, useEsports } from './EsportsRoute'
 import type { EsportsContext } from './EsportsRoute'
 import { CardOutcomeDialog, PostToDiscordDialog } from './CardPostDialogs'
 import { RacingTeamDialog } from './RacingTeamDialog'
+import { RacingTeamEditDialog } from './RacingTeamEditDialog'
 import type { TeamCreated } from './RacingTeamDialog'
 import { AddMemberDialog, DriverProfileDialog, RemoveMemberDialog } from './RosterDialogs'
 
-export const NO_EDIT_TEXT = 'Teams cannot be edited or deleted: no command does it (and a team\'s Discord role is created once and never renamed), so the API has no endpoint for it. To change or remove a team, do it in Discord.'
+export const NO_EDIT_TEXT = "A team's name and class can be changed with Edit team. Its colour cannot be changed, and a team cannot be deleted from the app: no command does it, so to remove a team, do it in Discord."
+
+export const EDIT_DENIED_TITLE = 'Needs the Manage Server permission'
 
 function Swatch({ color, small = false }: { color: string | null; small?: boolean }) {
   return <span className={`swatch${small ? ' swatch--sm' : ''}`} style={{ background: color ?? 'transparent' }} role="img" aria-label={color ? `Team colour ${color}` : 'No team colour'} />
@@ -38,7 +42,7 @@ function Swatch({ color, small = false }: { color: string | null; small?: boolea
 
 // ── The list ────────────────────────────────────────────────────────────────
 
-function TeamList({ teams, onOpen }: { teams: RacingTeam[]; onOpen: (team: RacingTeam) => void }) {
+function TeamList({ teams, editDenied, onOpen, onEdit }: { teams: RacingTeam[]; editDenied: boolean; onOpen: (team: RacingTeam) => void; onEdit: (team: RacingTeam) => void }) {
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<TeamFilter>('all')
   const [sort, setSort] = useState<SortState<TeamColumn> | null>({ key: 'name', direction: 'asc' })
@@ -67,12 +71,15 @@ function TeamList({ teams, onOpen }: { teams: RacingTeam[]; onOpen: (team: Racin
               <SortHeader label="Team" column="name" sort={sort} onSort={onSort} />
               <SortHeader label="Class or category" column="focus" sort={sort} onSort={onSort} />
               <SortHeader label="Members" column="members" sort={sort} onSort={onSort} numeric />
+              <th scope="col">
+                <span className="sr-only">Actions</span>
+              </th>
             </tr>
           </thead>
           <Stagger as="tbody">
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={3} className="table__empty">
+                <td colSpan={4} className="table__empty">
                   No team matches your search or filter.
                 </td>
               </tr>
@@ -88,6 +95,11 @@ function TeamList({ teams, onOpen }: { teams: RacingTeam[]; onOpen: (team: Racin
                 </th>
                 <td>{team.focus === '' ? <span className="muted">Not set</span> : team.focus}</td>
                 <td className="table__num">{team.memberCount === 0 ? <Badge>No members</Badge> : team.memberCount}</td>
+                <td>
+                  <div className="row-actions">
+                    <Button variant="ghost" size="sm" iconOnly disabled={editDenied} icon={<Pencil size={16} aria-hidden="true" />} aria-label={`Edit team ${team.name}`} title={editDenied ? EDIT_DENIED_TITLE : 'Edit the name and class of this team'} onClick={() => onEdit(team)} />
+                  </div>
+                </td>
               </tr>
             ))}
           </Stagger>
@@ -131,11 +143,12 @@ function TeamCardSummary({ team }: { team: Pick<RacingTeamDetail, 'name' | 'focu
 
 // ── One team ────────────────────────────────────────────────────────────────
 
-function TeamDetail({ ctx, name, onBack }: { ctx: EsportsContext; name: string; onBack: () => void }) {
+function TeamDetail({ ctx, name, onBack, onRenamed }: { ctx: EsportsContext; name: string; onBack: () => void; onRenamed: (result: RacingTeamEditResult, from: string) => void }) {
   const team = useRacingTeam(ctx.guild.id, ctx.game, name)
   const manage = useManageDenied(ctx.guild.id)
   const [adding, setAdding] = useState(false)
   const [posting, setPosting] = useState(false)
+  const [editing, setEditing] = useState(false)
   const [removing, setRemoving] = useState<RosterEntry | null>(null)
   const [profileOf, setProfileOf] = useState<RosterEntry | null>(null)
   const [query, setQuery] = useState('')
@@ -188,6 +201,9 @@ function TeamDetail({ ctx, name, onBack }: { ctx: EsportsContext; name: string; 
               </p>
             </div>
             <div className="header-actions">
+              <Button variant="secondary" icon={<Pencil size={16} aria-hidden="true" />} disabled={manage.denied} title={manage.denied ? EDIT_DENIED_TITLE : 'Edit the name and class of this team'} onClick={() => setEditing(true)}>
+                Edit team
+              </Button>
               <Button variant="secondary" icon={<Send size={16} aria-hidden="true" />} disabled={manage.denied} title={manage.denied ? 'Needs the Manage Server permission' : 'Post the card of this team in a Discord channel'} onClick={() => setPosting(true)}>
                 Post to Discord
               </Button>
@@ -281,6 +297,17 @@ function TeamDetail({ ctx, name, onBack }: { ctx: EsportsContext; name: string; 
           onClose={() => setPosting(false)}
         />
       ) : null}
+      {editing && data ? (
+        <RacingTeamEditDialog
+          ctx={ctx}
+          team={data}
+          onClose={() => setEditing(false)}
+          onSaved={(result, from) => {
+            setEditing(false)
+            onRenamed(result, from)
+          }}
+        />
+      ) : null}
       {adding && data ? <AddMemberDialog guildId={ctx.guild.id} game={ctx.game} gameLabel={ctx.gameLabel} team={data} onClose={() => setAdding(false)} onAdded={() => setAdding(false)} /> : null}
       {removing && data ? <RemoveMemberDialog guildId={ctx.guild.id} game={ctx.game} gameLabel={ctx.gameLabel} team={data} entry={removing} onClose={() => setRemoving(null)} onRemoved={() => setRemoving(null)} /> : null}
       {profileOf ? <DriverProfileDialog guildId={ctx.guild.id} game={ctx.game} gameLabel={ctx.gameLabel} userId={profileOf.userId} fallbackName={rosterName(profileOf)} onClose={() => setProfileOf(null)} /> : null}
@@ -296,9 +323,17 @@ function TeamsScreen({ ctx }: { ctx: EsportsContext }) {
   const [creating, setCreating] = useState(false)
   const [selected, setSelected] = useState<string | null>(null)
   const [followUp, setFollowUp] = useState<TeamCreated | null>(null)
+  const [editingTeam, setEditingTeam] = useState<RacingTeam | null>(null)
 
   const list = teams.status === 'ready' ? teams.data : []
-  const current = selected === null ? null : (list.find((team) => team.name.toLowerCase() === selected.toLowerCase()) ?? null)
+  // A team missing from a list that is being re-read is not "gone": right after a rename the list still holds the old name.
+  const view = selectedTeamView(list, selected, teams.status === 'ready' && teams.refreshing === true)
+  const current = view.kind === 'found' ? view.team : null
+  /** A saved edit: a team that is open moves to its new name FIRST, so nothing asks the server for the old name again. */
+  const onEdited = (result: RacingTeamEditResult, from: string): void => {
+    setEditingTeam(null)
+    setSelected((now) => selectionAfterRename(now, from, result.team.name))
+  }
 
   return (
     <div className="page">
@@ -331,16 +366,22 @@ function TeamsScreen({ ctx }: { ctx: EsportsContext }) {
       ) : null}
       {teams.status === 'error' ? <ErrorState title="Could not load the teams" message={errorCode(teams.error) === 'forbidden' ? 'You no longer have the FIA, STAFF or Administrator role in this server, so the teams cannot be read.' : describeError(teams.error)} onRetry={teams.reload} /> : null}
 
-      {selected !== null && teams.status === 'ready' && current === null ? (
+      {selected !== null && teams.status === 'ready' && view.kind === 'refreshing' ? (
+        <LoadingRegion label="Loading the team" className="stack">
+          <Skeleton height={90} radius={12} />
+          <Skeleton height={220} radius={12} />
+        </LoadingRegion>
+      ) : null}
+      {selected !== null && teams.status === 'ready' && view.kind === 'gone' ? (
         <>
-          <Notice tone="info">The team {selected} no longer exists. It may have been removed in Discord.</Notice>
+          <Notice tone="info">The team {selected} no longer exists under that name. It may have been renamed or removed in Discord.</Notice>
           <Button variant="secondary" onClick={() => setSelected(null)}>
             Back to the teams
           </Button>
         </>
       ) : null}
 
-      {current ? <TeamDetail key={current.name} ctx={ctx} name={current.name} onBack={() => setSelected(null)} /> : null}
+      {current ? <TeamDetail key={current.name} ctx={ctx} name={current.name} onBack={() => setSelected(null)} onRenamed={onEdited} /> : null}
 
       {teams.status === 'ready' && selected === null ? (
         <>
@@ -356,12 +397,13 @@ function TeamsScreen({ ctx }: { ctx: EsportsContext }) {
               }
             />
           ) : (
-            <TeamList teams={list} onOpen={(team) => setSelected(team.name)} />
+            <TeamList teams={list} editDenied={manage.denied} onOpen={(team) => setSelected(team.name)} onEdit={setEditingTeam} />
           )}
           <p className="muted">{NO_EDIT_TEXT}</p>
         </>
       ) : null}
 
+      {editingTeam ? <RacingTeamEditDialog ctx={ctx} team={editingTeam} onClose={() => setEditingTeam(null)} onSaved={onEdited} /> : null}
       {creating ? (
         <RacingTeamDialog
           ctx={ctx}

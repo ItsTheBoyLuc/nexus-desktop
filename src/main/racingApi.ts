@@ -1,6 +1,6 @@
 import { isMessageId } from '../shared/attendanceValidation'
 import { isCardId, parsePingRoleIds, parsePostTarget } from '../shared/pingRoles'
-import { isRacingGame } from '../shared/racingValidation'
+import { isRacingGame, RACING_LIMITS } from '../shared/racingValidation'
 import type {
   CardOutcome,
   CardPostResult,
@@ -27,6 +27,8 @@ import type {
   RacingMembership,
   RacingTeam,
   RacingTeamDetail,
+  RacingTeamEditInput,
+  RacingTeamEditResult,
   RacingTeamInput,
   RacingTeamPostInput,
   RacingTeamRole,
@@ -36,7 +38,7 @@ import type {
   RosterRemoveResult,
   WithCard
 } from '../shared/types'
-import { isValidHexColor, isValidImageUrl, isValidSnowflake } from '../shared/validation'
+import { isValidHexColor, isValidImageUrl, isValidSnowflake, singleLineProblem } from '../shared/validation'
 import type { ApiClient } from './apiClient'
 import { clientError, invalid, isCount, isRecord, list } from './apiParse'
 
@@ -60,6 +62,11 @@ export interface RacingApi {
    * IS saved). Never replayed.
    */
   createRacingTeam: (guildId: string, game: RacingGame, input: RacingTeamInput) => Promise<WithCard<RacingTeamDetail>>
+  /**
+   * Renames a team and / or changes its class (M7, `PATCH …/teams`). Only the fields in `input` are sent; nothing to change is refused here
+   * (`no_changes`) without a request. Never replayed: a lost answer may already have renamed the team's Discord role and its results.
+   */
+  editRacingTeam: (guildId: string, game: RacingGame, input: RacingTeamEditInput) => Promise<RacingTeamEditResult>
   addRosterMember: (guildId: string, game: RacingGame, input: RosterAddInput) => Promise<RosterAddResult>
   removeRosterMember: (guildId: string, game: RacingGame, team: string, userId: string) => Promise<RosterRemoveResult>
   racingDriver: (guildId: string, game: RacingGame, userId: string) => Promise<RacingDriverProfile>
@@ -310,6 +317,23 @@ export function createRacingApi(client: ApiClient): RacingApi {
       if (!isRecord(json)) throw invalid('team')
       const team = parseTeamDetail(json['team'])
       return card.posting ? { ...team, card: parseCardOutcome(json) } : team
+    },
+
+    async editRacingTeam(guildId, game, input) {
+      const body: { team: string; new_name?: string; focus?: string | null } = { team: teamName(input.team) }
+      if (input.newName !== undefined) body.new_name = teamName(input.newName)
+      if (input.focus !== undefined) {
+        // null and empty text both clear the class (the server takes null); the key is only sent when the caller asked for a change.
+        const focus = (input.focus ?? '').trim()
+        const problem = focus === '' ? null : singleLineProblem(focus, 1, RACING_LIMITS.focusMax, 'a class or category')
+        if (problem) throw clientError('invalid_focus', problem)
+        body.focus = focus === '' ? null : focus
+      }
+      if (body.new_name === undefined && body.focus === undefined) throw clientError('no_changes', 'Change the name or the class first: there is nothing to save.')
+      // One attempt, never replayed: a lost answer may already have renamed the team's Discord role and the team name of its results.
+      const json = await client.request({ method: 'PATCH', path: racingPath(guildId, game, 'teams'), body })
+      if (!isRecord(json) || typeof json['role_updated'] !== 'boolean') throw invalid('team')
+      return { team: parseTeamDetail(json['team']), roleUpdated: json['role_updated'] }
     },
 
     async addRosterMember(guildId, game, input) {

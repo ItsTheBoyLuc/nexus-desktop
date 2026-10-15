@@ -93,6 +93,7 @@ const bridge: NexusBridge = {
     racingTeams: (guildId, game) => ipcRenderer.invoke(IPC.apiRacingTeams, guildId, game),
     racingTeam: (guildId, game, name) => ipcRenderer.invoke(IPC.apiRacingTeam, guildId, game, name),
     createRacingTeam: (guildId, game, input) => ipcRenderer.invoke(IPC.apiRacingTeamCreate, guildId, game, input),
+    editRacingTeam: (guildId, game, input) => ipcRenderer.invoke(IPC.apiRacingTeamEdit, guildId, game, input),
     addRosterMember: (guildId, game, input) => ipcRenderer.invoke(IPC.apiRacingRosterAdd, guildId, game, input),
     removeRosterMember: (guildId, game, team, userId) => ipcRenderer.invoke(IPC.apiRacingRosterRemove, guildId, game, team, userId),
     racingDriver: (guildId, game, userId) => ipcRenderer.invoke(IPC.apiRacingDriver, guildId, game, userId),
