@@ -14,6 +14,7 @@
     "test": "vitest run",
     "build": "npm run typecheck && node scripts/check-no-mock.mjs pre && electron-vite build && node scripts/check-no-mock.mjs post",
     "dist": "npm run build && electron-builder --win --x64",
+    "release": "node scripts/release.mjs",
     "icon": "node scripts/generate-icon.mjs"
   },
   "devDependencies": {

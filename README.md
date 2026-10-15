@@ -251,6 +251,16 @@ dialog) in two places:
   `deletelimit`, `lostdelete` (and `nomanage`, `nostaff`) for the posts. Everything posted in the mock can be listed and deleted
   again. The scenarios and hooks are documented at the top of `mock/racingMock.ts` and `mock/appPostsMock.ts`.
 
+### App updates and releases
+
+The installed app (the Windows installer, not the portable build) updates itself from a **separate public releases-only repository**,
+`ItsTheBoyLuc/nexus-desktop-releases`; the source repository stays private and no token is inside the app. A silent check runs a little after start
+and every 6 hours; it only checks and shows a badge on the Preferences button. In Preferences the user sees the version, **Check for updates** and
+the state, and chooses **Download the update** and **Restart and install**: nothing downloads or installs by itself, pre-releases and downgrades are
+off, and the restart is refused while a save, post or delete is in progress (writes are never replayed). The updater lives in the main process
+(`src/main/updateService.ts`), is off in development, in `dev:mock` and in the portable build, and the build guard refuses a build that could force
+it on or that names a token. `npm run release -- patch|minor|major` publishes a **draft**; see `docs/RELEASING.md`.
+
 ## Motion
 
 A small motion layer, pure CSS plus a tiny React helper, no animation library. All of it is in `src/renderer/theme/motion.css`, with the durations (150 / 220 / 320 ms, 40 ms stagger) and the easing as tokens in `theme/tokens.ts`. Only transform, opacity and stroke-dashoffset move (hover colour and shadow transitions aside; the one exception is the open and close of the sidebar groups).
