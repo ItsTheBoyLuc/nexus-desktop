@@ -80,6 +80,12 @@ describe('what the update panel shows', () => {
     expect(describeUpdate(states['downloadError']!).headline).toBe('Could not download the update')
   })
 
+  it('an error shows its short reason next to the text, and none when there is no reason', () => {
+    expect(describeUpdate({ ...states['checkError']!, reason: 'HTTP 404' } as UpdateState).detail).toBe('Could not check for updates. The app keeps working as it is. (Reason: HTTP 404)')
+    expect(describeUpdate({ status: 'error', currentVersion: V, during: 'check', message: '', reason: 'No network' }).detail).toMatch(/\(Reason: No network\)$/)
+    expect(describeUpdate(states['checkError']!).detail).not.toMatch(/Reason/)
+  })
+
   it('only an update that needs the user shows a badge', () => {
     const withBadge = Object.entries(states).filter(([, state]) => describeUpdate(state).badge !== null).map(([name]) => name)
     expect(withBadge.sort()).toEqual(['available', 'downloading', 'ready', 'readyBusy'])

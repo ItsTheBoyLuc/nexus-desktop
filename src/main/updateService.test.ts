@@ -119,6 +119,20 @@ describe('a check', () => {
     expect(state.status).toBe('error')
   })
 
+  it.each([
+    [Object.assign(new Error('Cannot find latest.yml'), { name: 'HttpError', statusCode: 404, code: 'HTTP_ERROR_404' }), 'HTTP 404'],
+    [Object.assign(new Error('No published versions on GitHub'), { code: 'ERR_UPDATER_NO_PUBLISHED_VERSIONS' }), 'No published release'],
+    [Object.assign(new Error('getaddrinfo ENOTFOUND github.com'), { code: 'ENOTFOUND' }), 'No network'],
+    [Object.assign(new Error('sha512 checksum mismatch'), { code: 'ERR_CHECKSUM_MISMATCH' }), 'Bad update file']
+  ])('a failed check carries a short reason (%#: %s) and nothing else of the failure', async (failure, reason) => {
+    const { service, updater, states } = setup()
+    updater.onCheck = async () => {
+      throw failure
+    }
+    expect(await service.run('check')).toMatchObject({ status: 'error', during: 'check', reason })
+    expect(JSON.stringify(states)).not.toMatch(/latest\.yml|github|sha512|getaddrinfo/i)
+  })
+
   it('the same version as the installed one is "up to date", never an update', async () => {
     const { service, updater } = setup()
     updater.finds(CURRENT)

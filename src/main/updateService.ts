@@ -1,4 +1,4 @@
-import { describeUpdateError, INSTALL_BLOCKED_BY_WRITE, isPlainVersion, releaseNotesToText, SILENT_CHECK_FIRST_DELAY_MS, SILENT_CHECK_INTERVAL_MS } from '../shared/updates'
+import { classifyUpdateError, describeUpdateError, INSTALL_BLOCKED_BY_WRITE, isPlainVersion, releaseNotesToText, SILENT_CHECK_FIRST_DELAY_MS, SILENT_CHECK_INTERVAL_MS } from '../shared/updates'
 import type { UpdateCommand, UpdateState } from '../shared/updates'
 import { log } from './log'
 
@@ -157,8 +157,8 @@ export class UpdateService {
         else this.failCheck(before)
       }
     } catch (error) {
-      log.warn('update check failed', error)
-      this.failCheck(before)
+      log.warn(`update check failed (${classifyUpdateError(error)})`, error)
+      this.failCheck(before, error)
     }
   }
 
@@ -167,14 +167,14 @@ export class UpdateService {
     return this.state.status === 'checking' || (this.silentCheck && this.state === before)
   }
 
-  private failCheck(before: UpdateState): void {
+  private failCheck(before: UpdateState, error?: unknown): void {
     if (this.silentCheck) {
       // Nobody asked: a failed silent check changes nothing on screen.
       if (this.state.status === 'checking') this.set(before)
       return
     }
     if (this.state.status !== 'checking') return
-    this.set({ status: 'error', currentVersion: this.options.currentVersion, during: 'check', message: describeUpdateError('check') })
+    this.set({ status: 'error', currentVersion: this.options.currentVersion, during: 'check', message: describeUpdateError('check'), reason: classifyUpdateError(error) })
   }
 
   private onAvailable(info: unknown): void {
@@ -215,8 +215,8 @@ export class UpdateService {
 
   private async doDownload(): Promise<void> {
     const updater = await this.load()
-    const fail = (): void => {
-      if (this.state.status === 'downloading') this.set({ status: 'error', currentVersion: this.options.currentVersion, during: 'download', message: describeUpdateError('download') })
+    const fail = (error?: unknown): void => {
+      if (this.state.status === 'downloading') this.set({ status: 'error', currentVersion: this.options.currentVersion, during: 'download', message: describeUpdateError('download'), reason: classifyUpdateError(error) })
     }
     if (!updater) return fail()
     try {
@@ -227,8 +227,8 @@ export class UpdateService {
         fail()
       }
     } catch (error) {
-      log.warn('update download failed', error)
-      fail()
+      log.warn(`update download failed (${classifyUpdateError(error)})`, error)
+      fail(error)
     }
   }
 
@@ -268,7 +268,7 @@ export class UpdateService {
     } catch (error) {
       log.warn('could not start the installer', error)
       this.installing = false
-      this.set({ status: 'error', currentVersion: this.options.currentVersion, during: 'download', message: describeUpdateError('download') })
+      this.set({ status: 'error', currentVersion: this.options.currentVersion, during: 'download', message: describeUpdateError('download'), reason: classifyUpdateError(error) })
     }
   }
 

@@ -41,7 +41,7 @@ export function createUpdatesMock(scenario: string): UpdatesMockApi {
       if (!enabled || ['checking', 'downloading', 'ready'].includes(state.status)) return state
       set({ status: 'checking', currentVersion: CURRENT })
       await sleep(900)
-      if (scenario === 'updateerror') return set({ status: 'error', currentVersion: CURRENT, during: 'check', message: describeUpdateError('check') })
+      if (scenario === 'updateerror') return set({ status: 'error', currentVersion: CURRENT, during: 'check', message: describeUpdateError('check'), reason: 'No published release' })
       if (scenario === 'updatecurrent') return set({ status: 'up-to-date', currentVersion: CURRENT, checkedAt: new Date().toISOString() })
       return set({ status: 'available', currentVersion: CURRENT, version: NEXT, notes: 'What is new\n- Edit a team\n- Delete posts made with the app\n<b>plain text only</b> <script>alert(1)</script> & more' })
     },
@@ -54,7 +54,7 @@ export function createUpdatesMock(scenario: string): UpdatesMockApi {
         await sleep(450)
         if (scenario === 'updatedownloaderror' && percent > 40) {
           busy = false
-          return set({ status: 'error', currentVersion: CURRENT, during: 'download', message: describeUpdateError('download') })
+          return set({ status: 'error', currentVersion: CURRENT, during: 'download', message: describeUpdateError('download'), reason: 'No network' })
         }
         set({ status: 'downloading', currentVersion: CURRENT, version: NEXT, percent })
       }

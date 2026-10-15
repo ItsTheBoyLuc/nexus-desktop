@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { describeUpdateError, isPlainVersion, MAX_NOTES_LENGTH, releaseNotesToText, updaterDisabledReason } from './updates'
+import { classifyUpdateError, describeUpdateError, describeUpdateErrorWithReason, isPlainVersion, MAX_NOTES_LENGTH, releaseNotesToText, updaterDisabledReason } from './updates'
 
 describe('when the updater exists', () => {
   const installed = { isPackaged: true, isDev: false, platform: 'win32', isPortable: false }
@@ -63,5 +63,52 @@ describe('error messages', () => {
       expect(text).toMatch(/keeps working/)
       expect(text).not.toMatch(/http|token|sha512|\//i)
     }
+  })
+})
+
+describe('classifyUpdateError', () => {
+  const err = (props: Record<string, unknown>, message = 'detail'): Error => Object.assign(new Error(message), props)
+
+  it.each([
+    [err({ name: 'HttpError', statusCode: 404, code: 'HTTP_ERROR_404' }), 'HTTP 404'],
+    [err({ statusCode: 403 }), 'HTTP 403'],
+    [err({ statusCode: 503 }), 'HTTP 503'],
+    [err({ code: 'ERR_UPDATER_NO_PUBLISHED_VERSIONS' }), 'No published release'],
+    [err({ code: 'ERR_UPDATER_CHANNEL_FILE_NOT_FOUND' }), 'HTTP 404'],
+    [err({ code: 'ERR_UPDATER_LATEST_VERSION_NOT_FOUND' }), 'HTTP 404'],
+    [err({ code: 'ENOTFOUND' }), 'No network'],
+    [err({ code: 'ETIMEDOUT' }), 'No network'],
+    [err({ code: 'ECONNREFUSED' }), 'No network'],
+    [err({}, 'net::ERR_INTERNET_DISCONNECTED'), 'No network'],
+    [err({}, 'net::ERR_NAME_NOT_RESOLVED'), 'No network'],
+    [err({ code: 'CERT_HAS_EXPIRED' }), 'Certificate error'],
+    [err({}, 'net::ERR_CERT_AUTHORITY_INVALID'), 'Certificate error'],
+    [err({ code: 'ERR_CHECKSUM_MISMATCH' }), 'Bad update file'],
+    [err({ code: 'ERR_UPDATER_INVALID_RELEASE_FEED' }), 'Bad update file'],
+    [err({ code: 'ERR_UPDATER_INVALID_UPDATE_INFO' }), 'Bad update file'],
+    [err({ name: 'YAMLException' }), 'Bad update file'],
+    [err({ code: 'SOMETHING_ELSE' }), 'Unknown error'],
+    [new Error('plain'), 'Unknown error'],
+    ['text', 'Unknown error'],
+    [null, 'Unknown error'],
+    [undefined, 'Unknown error']
+  ])('%#: maps to %s', (error, reason) => expect(classifyUpdateError(error)).toBe(reason))
+
+  it('ignores a status code that is not a real HTTP status', () => {
+    expect(classifyUpdateError(err({ statusCode: 9999 }))).toBe('Unknown error')
+    expect(classifyUpdateError(err({ statusCode: '404' }))).toBe('Unknown error')
+  })
+
+  it('never copies anything of the failure into the reason (no URL, token or body)', () => {
+    const secret = err({ code: 'WEIRD', statusCode: undefined }, 'GET https://user:pass@api.github.com/x?token=abc123 failed {"body":"secret"}')
+    expect(classifyUpdateError(secret)).toBe('Unknown error')
+    const withNet = err({}, 'https://u:p@h/?token=abc123 net::ERR_NAME_NOT_RESOLVED')
+    expect(classifyUpdateError(withNet)).toBe('No network')
+    expect(describeUpdateErrorWithReason('check', classifyUpdateError(withNet))).not.toMatch(/abc123|token|https|u:p/)
+  })
+
+  it('puts the reason next to the generic text, and leaves the text alone without one', () => {
+    expect(describeUpdateErrorWithReason('check', 'HTTP 404')).toBe(`${describeUpdateError('check')} (Reason: HTTP 404)`)
+    expect(describeUpdateErrorWithReason('download', undefined)).toBe(describeUpdateError('download'))
   })
 })

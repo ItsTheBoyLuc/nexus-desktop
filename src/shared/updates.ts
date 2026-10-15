@@ -22,7 +22,8 @@ export type UpdateState =
   | { status: 'downloading'; currentVersion: string; version: string; percent: number }
   /** Downloaded and verified. `installBlockedReason` is set while a write is in progress: the restart button is disabled with that reason. */
   | { status: 'ready'; currentVersion: string; version: string; installBlockedReason: string | null }
-  | { status: 'error'; currentVersion: string; during: 'check' | 'download'; message: string }
+  /** `reason` is one of the fixed short labels of `classifyUpdateError` (never text from the failure itself). */
+  | { status: 'error'; currentVersion: string; during: 'check' | 'download'; message: string; reason?: UpdateErrorReason }
 
 export type UpdateStatus = UpdateState['status']
 
@@ -89,4 +90,51 @@ export function describeUpdateError(during: 'check' | 'download'): string {
   return during === 'check'
     ? 'Could not check for updates. Check your internet connection and try again later. The app keeps working as it is.'
     : 'Could not download the update. Check your internet connection and try again. The app keeps working as it is.'
+}
+
+/**
+ * Why an update failed, as a short fixed label. The labels are the only thing that reaches the screen: nothing of the failure itself (its
+ * message, a URL, a response body) is ever shown, so a reason can never leak a secret or a URL with credentials.
+ */
+export type UpdateErrorReason =
+  | 'No published release'
+  | 'HTTP 404'
+  | `HTTP ${number}`
+  | 'No network'
+  | 'Certificate error'
+  | 'Bad update file'
+  | 'Unknown error'
+
+const NETWORK_CODES = /^(?:ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ECONNRESET|ECONNABORTED|ETIMEDOUT|ENETUNREACH|ENETDOWN|EHOSTUNREACH|EPIPE|ERR_INTERNET_DISCONNECTED|ERR_NAME_NOT_RESOLVED|ERR_NETWORK_CHANGED|ERR_NETWORK_ACCESS_DENIED|ERR_CONNECTION_\w+|ERR_TIMED_OUT|ERR_PROXY_\w+|ERR_TUNNEL_\w+)$/
+const CERTIFICATE_CODES = /^(?:ERR_CERT_\w+|ERR_SSL_\w+|CERT_\w+|UNABLE_TO_VERIFY_LEAF_SIGNATURE|UNABLE_TO_GET_ISSUER_CERT\w*|DEPTH_ZERO_SELF_SIGNED_CERT|SELF_SIGNED_CERT_IN_CHAIN|ERR_TLS_\w+)$/
+const BAD_FILE_CODES = /^(?:ERR_CHECKSUM_MISMATCH|ERR_UPDATER_(?:INVALID_RELEASE_FEED|INVALID_UPDATE_INFO|INVALID_VERSION|NO_CHECKSUM|NO_FILES_PROVIDED|INVALID_SIGNATURE|ASSET_NOT_FOUND)|ERR_XML_\w+)$/
+const NOT_FOUND_CODES = /^ERR_UPDATER_(?:CHANNEL_FILE_NOT_FOUND|LATEST_VERSION_NOT_FOUND|RELEASE_NOT_FOUND)$/
+
+/**
+ * Maps whatever the updater threw to a short label. Only the error's `code`, `name`, `statusCode` and (for Chromium's `net::ERR_...`) the
+ * error token inside its message are looked at, and only to pick one of the fixed labels; the text itself is never copied anywhere.
+ */
+export function classifyUpdateError(error: unknown): UpdateErrorReason {
+  if (typeof error !== 'object' || error === null) return 'Unknown error'
+  const { code, name, statusCode, message } = error as { code?: unknown; name?: unknown; statusCode?: unknown; message?: unknown }
+  if (typeof statusCode === 'number' && Number.isInteger(statusCode) && statusCode >= 100 && statusCode <= 599) return statusCode === 404 ? 'HTTP 404' : `HTTP ${statusCode}`
+  const codeText = typeof code === 'string' ? code : ''
+  if (codeText === 'ERR_UPDATER_NO_PUBLISHED_VERSIONS') return 'No published release'
+  if (NOT_FOUND_CODES.test(codeText)) return 'HTTP 404'
+  if (BAD_FILE_CODES.test(codeText) || name === 'YAMLException') return 'Bad update file'
+  if (CERTIFICATE_CODES.test(codeText)) return 'Certificate error'
+  if (NETWORK_CODES.test(codeText)) return 'No network'
+  // Chromium's net stack (electron's `net`) puts its error in the message: "net::ERR_NAME_NOT_RESOLVED". Only the token is read.
+  const net = typeof message === 'string' ? /net::(ERR_[A-Z_]{3,40})/.exec(message)?.[1] : undefined
+  if (net !== undefined) {
+    if (CERTIFICATE_CODES.test(net)) return 'Certificate error'
+    if (NETWORK_CODES.test(net)) return 'No network'
+  }
+  return 'Unknown error'
+}
+
+/** The generic text plus the reason next to it, e.g. "Could not check for updates. ... (Reason: HTTP 404)". */
+export function describeUpdateErrorWithReason(during: 'check' | 'download', reason: UpdateErrorReason | undefined): string {
+  const text = describeUpdateError(during)
+  return reason === undefined ? text : `${text} (Reason: ${reason})`
 }

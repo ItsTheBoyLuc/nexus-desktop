@@ -1,4 +1,4 @@
-import { describeUpdateError } from '../../shared/updates'
+import { describeUpdateErrorWithReason } from '../../shared/updates'
 import type { UpdateState } from '../../shared/updates'
 
 /**
@@ -67,7 +67,7 @@ export function describeUpdate(state: UpdateState | null): UpdateView {
       return {
         ...base,
         headline: state.during === 'check' ? 'Could not check for updates' : 'Could not download the update',
-        detail: state.message || describeUpdateError(state.during),
+        detail: state.message ? (state.reason === undefined ? state.message : `${state.message} (Reason: ${state.reason})`) : describeUpdateErrorWithReason(state.during, state.reason),
         action: { kind: 'check', label: 'Try again', disabled: false, disabledReason: null },
         isError: true
       }
