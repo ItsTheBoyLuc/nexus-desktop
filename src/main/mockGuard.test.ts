@@ -42,6 +42,7 @@ describe('build guard against the mock bridge', () => {
       mkdirSync(join(root, 'scripts'), { recursive: true })
       mkdirSync(join(root, 'out', 'renderer', 'assets'), { recursive: true })
       writeFileSync(join(root, 'scripts', 'check-no-mock.mjs'), readFileSync(script, 'utf8'))
+      writeFileSync(join(root, 'scripts', 'buildGuards.mjs'), readFileSync(join(process.cwd(), 'scripts', 'buildGuards.mjs'), 'utf8'))
       writeFileSync(join(root, 'out', 'renderer', 'assets', 'index.js'), 'console.log("clean bundle")')
       const clean = spawnSync(process.execPath, [join(root, 'scripts', 'check-no-mock.mjs'), 'post'], { encoding: 'utf8' })
       expect(clean.status).toBe(0)
@@ -50,6 +51,14 @@ describe('build guard against the mock bridge', () => {
       const dirty = spawnSync(process.execPath, [join(root, 'scripts', 'check-no-mock.mjs'), 'post'], { encoding: 'utf8' })
       expect(dirty.status).toBe(1)
       expect(dirty.stderr).toContain('mock bridge code found')
+
+      // The updater guard: a build that can force the updater on in development, or that names a token, is refused too.
+      for (const needle of ['autoUpdater.forceDevUpdateConfig = true', 'process.env.GH_TOKEN', 'dev-app-update.yml']) {
+        writeFileSync(join(root, 'out', 'renderer', 'assets', 'index.js'), `console.log(${JSON.stringify(needle)})`)
+        const forbidden = spawnSync(process.execPath, [join(root, 'scripts', 'check-no-mock.mjs'), 'post'], { encoding: 'utf8' })
+        expect(forbidden.status, needle).toBe(1)
+        expect(forbidden.stderr, needle).toContain('updater must never ship')
+      }
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

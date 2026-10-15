@@ -114,6 +114,7 @@ import type {
   TierUpdateInput,
   UserInfo
 } from './types'
+import type { UpdateState } from './updates'
 
 export type Unsubscribe = () => void
 
@@ -281,6 +282,18 @@ export interface NexusBridge {
     getStatus: () => Promise<ApiStatus>
     /** online / waking (server asleep, retrying) / offline. */
     onStatusChange: (callback: (status: ApiStatus) => void) => Unsubscribe
+  }
+
+  /**
+   * App updates. Every call answers with the state afterwards and takes no argument: the main process decides what is checked, downloaded and
+   * installed. Nothing is downloaded unless `download` is asked for, and `install` is refused while a write is in progress.
+   */
+  updates: {
+    getState: () => Promise<UpdateState>
+    check: () => Promise<UpdateState>
+    download: () => Promise<UpdateState>
+    install: () => Promise<UpdateState>
+    onStateChange: (callback: (state: UpdateState) => void) => Unsubscribe
   }
 
   settings: {

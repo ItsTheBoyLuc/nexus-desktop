@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { app, BrowserWindow, Menu, safeStorage, session } from 'electron'
+import { updaterDisabledReason } from '../shared/updates'
 import { IPC } from '../shared/ipc'
 import { ApiClient } from './apiClient'
 import { AuthService } from './auth'
@@ -13,6 +14,7 @@ import { log } from './log'
 import { createNexusApi } from './nexusApi'
 import { hardenSession, hardenWebContents } from './security'
 import { SettingsStore } from './settings'
+import { UpdateService } from './updateService'
 import { ApiStatusTracker } from './status'
 import { RefreshTokenStore } from './tokenStore'
 
@@ -83,6 +85,17 @@ function startServices(): void {
 
   const status = new ApiStatusTracker((value) => broadcast(IPC.apiStatusChanged, value))
 
+  // App updates. The updater exists only in a packaged, installed Windows build: in development (and in dev:mock, which has no main process) electron-updater is not even
+  // loaded. A restart for an update waits while a write is on its way: the app never replays a write.
+  const disabledReason = updaterDisabledReason({ isPackaged: app.isPackaged, isDev, platform: process.platform, isPortable: typeof process.env['PORTABLE_EXECUTABLE_FILE'] === 'string' })
+  const updates = new UpdateService({
+    currentVersion: app.getVersion(),
+    disabledReason,
+    loadUpdater: async () => (await import('./electronUpdater')).createElectronUpdater(),
+    writesInFlight: () => client.writesInFlight(),
+    onState: (state) => broadcast(IPC.updatesStateChanged, state)
+  })
+
   // auth <-> client reference each other (the client reports a dead session to auth).
   // eslint-disable-next-line prefer-const
   let auth: AuthService
@@ -98,7 +111,8 @@ function startServices(): void {
     clearPersistedSession: () => tokenStore.clear(),
     onWaking: (active) => status.setWaking(active),
     onStatus: (value) => status.setBase(value),
-    onSessionEnded: (reason) => auth.handleSessionEnded(reason)
+    onSessionEnded: (reason) => auth.handleSessionEnded(reason),
+    onWritesChange: () => updates.notifyWritesChanged()
   })
   const api = createNexusApi(client)
 
@@ -113,8 +127,10 @@ function startServices(): void {
     onState: (state) => broadcast(IPC.authStateChanged, state)
   })
 
-  registerIpc({ auth, api, settings, getApiStatus: () => status.current(), isTrustedUrl: (url) => url.startsWith(trustedUrlPrefix) })
+  registerIpc({ auth, api, settings, updates, getApiStatus: () => status.current(), isTrustedUrl: (url) => url.startsWith(trustedUrlPrefix) })
   void auth.restore()
+  updates.start() // the silent checks: a little after start, then every 6 hours. A disabled updater schedules nothing.
+  app.once('before-quit', () => updates.stop())
 }
 
 // Single instance: a second launch just focuses the running window.

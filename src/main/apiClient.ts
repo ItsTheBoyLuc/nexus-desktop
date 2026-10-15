@@ -62,6 +62,8 @@ export interface ApiClientOptions {
   onWaking?: (active: boolean) => void
   onStatus?: (status: 'online' | 'offline') => void
   onSessionEnded?: (reason: SessionEndReason) => void
+  /** Called whenever the number of writes (POST / PUT / PATCH / DELETE) that are on their way changes. The updater waits for it to be 0 before it restarts the app. */
+  onWritesChange?: (inFlight: number) => void
 }
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
@@ -134,6 +136,7 @@ export class ApiClient {
   private refreshToken: string | null = null
   private refreshInFlight: Promise<boolean> | null = null
   private wakeWatchers = 0
+  private writesInFlightCount = 0
 
   constructor(private readonly options: ApiClientOptions) {
     this.baseUrl = options.baseUrl.replace(/\/+$/, '')
@@ -205,7 +208,25 @@ export class ApiClient {
     }
   }
 
+  /** How many writes (POST / PUT / PATCH / DELETE) are on their way right now. A restart for an update must wait for 0: a write is never replayed. */
+  writesInFlight(): number {
+    return this.writesInFlightCount
+  }
+
   async request(options: RequestOptions): Promise<unknown> {
+    const isWrite = (options.method ?? 'GET') !== 'GET'
+    if (!isWrite) return this.performRequest(options)
+    this.writesInFlightCount++
+    this.options.onWritesChange?.(this.writesInFlightCount)
+    try {
+      return await this.performRequest(options)
+    } finally {
+      this.writesInFlightCount--
+      this.options.onWritesChange?.(this.writesInFlightCount)
+    }
+  }
+
+  private async performRequest(options: RequestOptions): Promise<unknown> {
     const wantsAuth = options.auth !== false
     if (options.once) return this.requestOnce(options)
 

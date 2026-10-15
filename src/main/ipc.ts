@@ -48,6 +48,7 @@ import {
   parseReportOverviewQuery
 } from '../shared/penaltyInputs'
 import type { ApiErrorInfo, ApiStatus, IpcResult, RacingGame } from '../shared/types'
+import type { UpdateCommand, UpdateState } from '../shared/updates'
 import { isValidKey, isValidSnowflake, validateAnnouncement } from '../shared/validation'
 import { ApiError } from './apiClient'
 import type { AuthService } from './auth'
@@ -64,6 +65,8 @@ export interface IpcDeps {
   api: NexusApi
   settings: SettingsStore
   getApiStatus: () => ApiStatus
+  /** The app updates (main process only). */
+  updates: { getState: () => UpdateState; run: (command: UpdateCommand) => Promise<UpdateState> }
   /** True only for frames of our own renderer (dev server URL or the packaged index.html). */
   isTrustedUrl: (url: string) => boolean
 }
@@ -310,6 +313,27 @@ export function registerIpc(deps: IpcDeps): void {
   handle(IPC.apiRacingResultLog, (guildId, game, input) => racing(guildId, game, (id, g) => deps.api.logRacingResult(id, g, valid(parseRacingResultInput(input)))))
 
   handle(IPC.apiGetStatus, () => deps.getApiStatus())
+
+  // App updates: no argument is accepted at all, so nothing the renderer sends can change what is checked, downloaded or installed.
+  const noArguments = (args: unknown[]): void => {
+    if (args.length > 0) throw new Error('This call takes no arguments')
+  }
+  handle(IPC.updatesGetState, (...args) => {
+    noArguments(args)
+    return deps.updates.getState()
+  })
+  handle(IPC.updatesCheck, (...args) => {
+    noArguments(args)
+    return deps.updates.run('check')
+  })
+  handle(IPC.updatesDownload, (...args) => {
+    noArguments(args)
+    return deps.updates.run('download')
+  })
+  handle(IPC.updatesInstall, (...args) => {
+    noArguments(args)
+    return deps.updates.run('install')
+  })
 
   handle(IPC.settingsGet, () => deps.settings.get())
   handle(IPC.settingsSet, (patch) => deps.settings.set(patch))

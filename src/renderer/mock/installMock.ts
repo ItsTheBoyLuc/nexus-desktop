@@ -21,6 +21,7 @@
  *   nodivisions | nosignups | noconfirmperms | nomanagechannels | ambiguousconfirm | lostcreates   attendance and sign-ups, see mock/attendanceMock.ts
  *   noracingteams | nomanage | nomanageroles | lostracing | noresults | noattendance | nomanager | nomanager-<game>   esports teams of the five games, see mock/racingMock.ts
  *   roleabove | editnochanges | editgone   editing a team (M7), see mock/racingMock.ts
+ *   updatecurrent | updateavailable | updatebusy | updateerror | updatedownloaderror   fake app-update states (the updater itself is always off in the mock), see mock/updatesMock.ts
  *   noappposts | postgone | notappost | cannotread | cannotdelete | channelgone | deletelimit | lostdelete   the posts made with the app and deleting them (M7), see mock/appPostsMock.ts
  *   manyteamroles | norolelist | invalidping | toomanyping | pingrefused | pinglimit | posterror   role pings and cards of the esports features, see mock/pingMock.ts and mock/racingMock.ts
  *   notadmin                       staff only, not Administrator: saving settings returns 403
@@ -66,6 +67,7 @@ import { createAppPostsMock } from './appPostsMock'
 import { createAttendanceMock } from './attendanceMock'
 import { createF1Mock } from './f1Mock'
 import { createRacingMock } from './racingMock'
+import { createUpdatesMock } from './updatesMock'
 import { MENTION_ALL_CHANNEL, ROLE_DELETED_MEANWHILE, ROLE_NOT_MENTIONABLE } from './pingMock'
 import type { F1MockContext } from './f1Mock'
 import { createStewardMock } from './stewardMock'
@@ -634,6 +636,8 @@ export function installMockBridge(): void {
         return () => statusListeners.delete(callback)
       }
     },
+
+    updates: createUpdatesMock(scenario),
 
     settings: {
       get: async () => clone(settings),

@@ -99,6 +99,13 @@ export const IPC = {
   settingsSet: 'settings:set',
   settingsRememberPostChannel: 'settings:remember-post-channel',
 
+  // App updates: four calls without any argument, and one event. The renderer can never supply a URL, a feed or a version.
+  updatesGetState: 'updates:get-state',
+  updatesCheck: 'updates:check',
+  updatesDownload: 'updates:download',
+  updatesInstall: 'updates:install',
+  updatesStateChanged: 'updates:state-changed',
+
   openExternal: 'system:open-external',
   copyText: 'system:copy-text'
 } as const

@@ -3,6 +3,7 @@ import type { IpcRendererEvent } from 'electron'
 import type { NexusBridge, Unsubscribe } from '../shared/bridge'
 import { IPC } from '../shared/ipc'
 import type { ApiStatus, AuthState } from '../shared/types'
+import type { UpdateState } from '../shared/updates'
 
 /**
  * The renderer's entire view of the main process. Only these typed functions are exposed:
@@ -113,6 +114,13 @@ const bridge: NexusBridge = {
     logRacingResult: (guildId, game, input) => ipcRenderer.invoke(IPC.apiRacingResultLog, guildId, game, input),
     getStatus: () => ipcRenderer.invoke(IPC.apiGetStatus),
     onStatusChange: (callback) => subscribe<ApiStatus>(IPC.apiStatusChanged, callback)
+  },
+  updates: {
+    getState: () => ipcRenderer.invoke(IPC.updatesGetState),
+    check: () => ipcRenderer.invoke(IPC.updatesCheck),
+    download: () => ipcRenderer.invoke(IPC.updatesDownload),
+    install: () => ipcRenderer.invoke(IPC.updatesInstall),
+    onStateChange: (callback) => subscribe<UpdateState>(IPC.updatesStateChanged, callback)
   },
   settings: {
     get: () => ipcRenderer.invoke(IPC.settingsGet),

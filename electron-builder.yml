@@ -32,6 +32,16 @@ win:
       arch: [x64]
   # The build is unsigned (no certificate): Windows SmartScreen shows an "unknown publisher" warning.
 
+# Auto-update feed: a separate PUBLIC repository that holds only installers (never source). The source repository stays private and no token is
+# ever shipped inside the app: electron-updater reads published releases anonymously. Releases are uploaded as DRAFTS and published by hand.
+# scripts/check-no-mock.mjs refuses a build when this block is not exactly this.
+publish:
+  provider: github
+  owner: ItsTheBoyLuc
+  repo: nexus-desktop-releases
+  private: false
+  releaseType: draft
+
 nsis:
   artifactName: Nexus-Setup-${version}-x64.${ext}
   oneClick: false
